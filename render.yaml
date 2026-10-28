@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: aarohi-ai
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: MODEL_BASE_URL
+        sync: false
+      - key: MODEL_API_KEY
+        sync: false
+      - key: MODEL_NAME
+        sync: false
