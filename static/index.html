@@ -27,7 +27,7 @@
           <div class="hero-orb">✧</div>
           <p class="eyebrow">YOUR AI WORKSPACE</p>
           <h1>What shall we<br><span>build today?</span></h1>
-          <p class="intro">Research ideas, plan projects, and work through problems with Aarohi.</p>
+          <p class="intro">Choose an available AI model, then research ideas, plan projects, and work through problems with Aarohi.</p>
           <div class="suggestions">
             <button class="suggestion" data-prompt="Help me plan the Aarohi AI project step by step."><span>✦</span><b>Plan a project</b><small>Break an idea into clear steps</small></button>
             <button class="suggestion" data-prompt="Explain how to safely deploy an AI app in the cloud."><span>☁</span><b>Cloud deployment</b><small>Understand hosting and setup</small></button>
@@ -36,10 +36,14 @@
         </div>
       </section>
       <form id="chat-form" class="composer">
+        <label class="provider-label" for="provider-select">AI model</label>
+        <select id="provider-select" aria-label="Choose AI provider" disabled>
+          <option value="">Loading available providers…</option>
+        </select>
         <textarea id="message" rows="1" maxlength="12000" placeholder="Message Aarohi…" aria-label="Message Aarohi"></textarea>
-        <div class="composer-footer"><span>Keep secrets and passwords out of chat.</span><button id="send" type="submit" aria-label="Send message">↑</button></div>
+        <div class="composer-footer"><span id="provider-note">Provider keys stay on the server.</span><button id="send" type="submit" aria-label="Send message" disabled>↑</button></div>
       </form>
-      <p class="fine-print">Aarohi can make mistakes. Verify important information.</p>
+      <p class="fine-print">Aarohi can make mistakes. Verify important information. Providers have separate quotas and privacy policies.</p>
     </main>
   </div>
   <script src="/static/app.js" defer></script>
