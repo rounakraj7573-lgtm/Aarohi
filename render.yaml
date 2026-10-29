@@ -5,9 +5,45 @@ services:
     plan: free
     healthCheckPath: /api/health
     envVars:
-      - key: MODEL_BASE_URL
+      - key: OPENAI_API_KEY
         sync: false
-      - key: MODEL_API_KEY
+      - key: OPENAI_MODEL
         sync: false
-      - key: MODEL_NAME
+      - key: GEMINI_API_KEY
         sync: false
+      - key: GEMINI_MODEL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        sync: false
+      - key: COHERE_API_KEY
+        sync: false
+      - key: COHERE_MODEL
+        sync: false
+      - key: TOGETHER_API_KEY
+        sync: false
+      - key: TOGETHER_MODEL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPSEEK_MODEL
+        sync: false
+      - key: MISTRAL_API_KEY
+        sync: false
+      - key: MISTRAL_MODEL
+        sync: false
+      - key: CUSTOM_API_BASE
+        sync: false
+      - key: CUSTOM_API_KEY
+        sync: false
+      - key: CUSTOM_MODEL
+        sync: false
+      - key: DEFAULT_AI_PROVIDER
+        value: gemini
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "20"
