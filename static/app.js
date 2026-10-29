@@ -5,7 +5,10 @@ const welcome = document.querySelector("#welcome");
 const send = document.querySelector("#send");
 const statusLabel = document.querySelector("#status-label");
 const statusDot = document.querySelector(".status-dot");
+const providerSelect = document.querySelector("#provider-select");
+const providerNote = document.querySelector("#provider-note");
 const history = [];
+let providers = [];
 
 function addMessage(role, content, isError = false) {
   welcome?.classList.add("hidden");
@@ -23,14 +26,45 @@ function addMessage(role, content, isError = false) {
   return wrapper;
 }
 
+async function loadProviders() {
+  try {
+    const response = await fetch("/api/providers");
+    if (!response.ok) throw new Error("providers unavailable");
+    const data = await response.json();
+    providers = Array.isArray(data.providers) ? data.providers : [];
+    providerSelect.replaceChildren();
+    if (!providers.length) {
+      providerSelect.append(new Option("No models configured yet", ""));
+      providerSelect.disabled = true;
+      send.disabled = true;
+      providerNote.textContent = "Add provider keys and model IDs in server environment settings.";
+      return;
+    }
+    providers.forEach(provider => {
+      providerSelect.append(new Option(provider.label + " · " + provider.model, provider.id));
+    });
+    const preferred = providers.find(provider => provider.default);
+    if (preferred) providerSelect.value = preferred.id;
+    providerSelect.disabled = false;
+    send.disabled = false;
+    providerNote.textContent = providers.length + " provider(s) configured · keys stay server-side";
+  } catch {
+    providerSelect.replaceChildren(new Option("Could not load providers", ""));
+    providerSelect.disabled = true;
+    send.disabled = true;
+    providerNote.textContent = "Server unavailable. Check deployment.";
+  }
+}
+
 async function checkHealth() {
   try {
     const response = await fetch("/api/health");
     if (!response.ok) throw new Error("offline");
     const data = await response.json();
-    statusLabel.textContent = data.model_configured ? "Server online · AI configured" : "Server online · setup needed";
-    statusDot.classList.toggle("ok", true);
-    statusDot.title = data.model_configured ? "AI model configured" : "AI model not configured";
+    const count = Number(data.configured_provider_count || 0);
+    statusLabel.textContent = count ? "Server online · " + count + " model provider(s)" : "Server online · setup needed";
+    statusDot.classList.add("ok");
+    statusDot.title = count ? count + " provider(s) configured" : "No AI providers configured";
   } catch {
     statusLabel.textContent = "Server status unavailable";
     statusDot.classList.remove("ok");
@@ -39,12 +73,13 @@ async function checkHealth() {
 
 async function sendMessage(text) {
   const message = text.trim();
-  if (!message || send.disabled) return;
+  if (!message || send.disabled || !providerSelect.value) return;
   addMessage("user", message);
   history.push({ role: "user", content: message });
   input.value = "";
   input.style.height = "auto";
   send.disabled = true;
+  providerSelect.disabled = true;
   const pending = document.createElement("div");
   pending.className = "typing";
   pending.textContent = "Aarohi is thinking…";
@@ -53,7 +88,7 @@ async function sendMessage(text) {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: history.slice(-20) })
+      body: JSON.stringify({ messages: history.slice(-20), provider: providerSelect.value })
     });
     const data = await response.json().catch(() => ({}));
     pending.remove();
@@ -67,12 +102,13 @@ async function sendMessage(text) {
       return;
     }
     history.push({ role: "assistant", content: reply });
-    addMessage("assistant", reply);
+    addMessage("assistant", "[" + (data.provider || providerSelect.value) + " · " + (data.model || "model") + "]\n" + reply);
   } catch {
     pending.remove();
     addMessage("assistant", "Could not reach the Aarohi server. Check the connection or deployment.", true);
   } finally {
-    send.disabled = false;
+    send.disabled = providers.length === 0;
+    providerSelect.disabled = providers.length === 0;
     input.focus();
     checkHealth();
   }
@@ -110,4 +146,5 @@ document.querySelector(".main").addEventListener("click", event => {
     document.querySelector(".sidebar").classList.remove("open");
   }
 });
+loadProviders();
 checkHealth();
