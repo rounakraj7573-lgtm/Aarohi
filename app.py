@@ -5,12 +5,16 @@ from typing import Literal
 
 import litellm
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = FastAPI(title="Aarohi AI", version="0.2.0")
+# Allow the separately hosted static frontend to call this API.
+allowed_origins = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "https://aarohi-home.onrender.com").split(",") if origin.strip()]
+app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type"])
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 
 # Provider keys stay on the server. Model IDs are configurable because catalogs change.
