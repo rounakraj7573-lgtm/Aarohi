@@ -23,6 +23,7 @@ app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), na
 PROVIDERS = {
     "openai": {"label": "OpenAI / ChatGPT", "key_env": "OPENAI_API_KEY", "model_env": "OPENAI_MODEL", "prefix": "openai"},
     "gemini": {"label": "Google Gemini", "key_env": "GEMINI_API_KEY", "model_env": "GEMINI_MODEL", "prefix": "gemini"},
+    "openrouter": {"label": "OpenRouter (multiple model catalog)", "key_env": "OPENROUTER_API_KEY", "model_env": "OPENROUTER_MODEL", "prefix": "openrouter"},
     "groq": {"label": "Groq", "key_env": "GROQ_API_KEY", "model_env": "GROQ_MODEL", "prefix": "groq"},
     "cohere": {"label": "Cohere", "key_env": "COHERE_API_KEY", "model_env": "COHERE_MODEL", "prefix": "cohere_chat"},
     # Meta publishes Llama models; Together AI can host them.
