@@ -9,6 +9,8 @@ const statusDot = document.querySelector(".status-dot");
 const providerSelect = document.querySelector("#provider-select");
 const providerNote = document.querySelector("#provider-note");
 const history = [];
+let accessCode = localStorage.getItem("aarohi_access_code") || window.prompt("Enter your Aarohi access code:") || "";
+if (accessCode) localStorage.setItem("aarohi_access_code", accessCode);
 let providers = [];
 
 function addMessage(role, content, isError = false) {
@@ -29,7 +31,7 @@ function addMessage(role, content, isError = false) {
 
 async function loadProviders() {
   try {
-    const response = await fetch(API_BASE + "/api/providers");
+    const response = await fetch(API_BASE + "/api/providers", { headers: { "X-Aarohi-Access-Code": accessCode } });
     if (!response.ok) throw new Error("providers unavailable");
     const data = await response.json();
     providers = Array.isArray(data.providers) ? data.providers : [];
@@ -88,11 +90,18 @@ async function sendMessage(text) {
   try {
     const response = await fetch(API_BASE + "/api/chat", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Aarohi-Access-Code": accessCode },
       body: JSON.stringify({ messages: history.slice(-20), provider: providerSelect.value })
     });
     const data = await response.json().catch(() => ({}));
     pending.remove();
+    if (response.status === 401) {
+      localStorage.removeItem("aarohi_access_code");
+      accessCode = window.prompt("Access code incorrect. Enter your Aarohi access code:") || "";
+      if (accessCode) localStorage.setItem("aarohi_access_code", accessCode);
+      addMessage("assistant", "Access code required. Reload the page after entering the correct code.", true);
+      return;
+    }
     if (!response.ok) {
       addMessage("assistant", data.detail || "Request failed. Please try again.", true);
       return;
