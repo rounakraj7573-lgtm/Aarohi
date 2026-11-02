@@ -7,6 +7,7 @@ Aarohi is a cloud-first AI workspace. The phone runs the web interface; model re
 Aarohi uses LiteLLM to route chat requests to configured providers:
 - OpenAI / ChatGPT API
 - Google Gemini
+- OpenRouter (gateway to multiple model providers; select explicitly free models to avoid charges)
 - Groq
 - Cohere
 - Meta Llama models hosted through Together AI
@@ -23,6 +24,7 @@ In the hosting dashboard (or a private local .env file), set a provider's API ke
 
 - OPENAI_API_KEY and OPENAI_MODEL
 - GEMINI_API_KEY and GEMINI_MODEL
+- OPENROUTER_API_KEY and OPENROUTER_MODEL (choose a free model and confirm its current pricing before use)
 - GROQ_API_KEY and GROQ_MODEL
 - COHERE_API_KEY and COHERE_MODEL
 - TOGETHER_API_KEY and TOGETHER_MODEL for Meta Llama models served by Together
