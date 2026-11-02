@@ -104,7 +104,18 @@ async def chat(payload: ChatRequest, request: Request):
     api_base = os.getenv(config.get("base_env", ""), "").strip() if config.get("base_env") else None
     if config.get("base_env") and not (api_base or "").startswith("https://"):
         raise HTTPException(status_code=503, detail="Custom API base must be a valid HTTPS URL.")
-    messages = [{"role": m.role, "content": m.content} for m in payload.messages]
+    # Give every provider the same Aarohi identity and response style.
+    messages = [{
+        "role": "system",
+        "content": (
+            "You are Aarohi, the AI assistant inside the Aarohi app. "
+            "Your name is Aarohi. If asked your name, say: 'My name is Aarohi.' "
+            "Do not say you have no name, and do not claim to be ChatGPT, Gemini, or another provider. "
+            "If asked which model powers you, answer honestly using the current provider/model context supplied by the app; "
+            "you are Aarohi, powered by the selected AI model. Do not claim human identity or personal experiences. "
+            "Be helpful, clear, friendly, and normally answer in the user's language."
+        )
+    }] + [{"role": m.role, "content": m.content} for m in payload.messages if m.role != "system"]
     try:
         result = await litellm.acompletion(
             model=normalized_model(config, model_name),
