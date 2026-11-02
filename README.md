@@ -57,7 +57,10 @@ Deploy as a Docker web service on a compatible host. render.yaml lists optional 
 - Requests are sent to the provider selected in the model picker. Avoid sending sensitive data unless you have reviewed that provider's policies.
 - This starter does not yet execute arbitrary user code. A coding agent needs a separate isolated sandbox with strict CPU, memory, time, and network limits.
 - GitHub write actions, persistent memory, background jobs, web research, and autonomous self-modification are not yet enabled in this starter.
-- The basic per-process rate limiter is not a substitute for production authentication or shared rate limiting.
+- The private beta uses a shared access code stored only in the backend environment; it is not individual user accounts.
+- Chat requests require the access code, are limited per client and globally per minute, restrict conversation size, and allow at most two simultaneous provider calls per process.
+- Rate limits are in-memory and reset when the service restarts; they are a free-tier safeguard, not enterprise-grade abuse prevention.
+- Keep the access code private. Anyone who has it can use the configured provider quota. Rotate it in the hosting dashboard if it is shared accidentally.
 - Never expose API tokens in frontend JavaScript, logs, screenshots, or commits.
 
 ## Project status
