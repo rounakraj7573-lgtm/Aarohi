@@ -1,5 +1,7 @@
 import os
 import time
+import hmac
+import asyncio
 from collections import defaultdict, deque
 from typing import Literal
 
@@ -8,13 +10,13 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = FastAPI(title="Aarohi AI", version="0.2.0")
 # Allow the separately hosted static frontend to call this API.
 allowed_origins = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "https://aarohi-home.onrender.com").split(",") if origin.strip()]
-app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type"])
+app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "X-Aarohi-Access-Code"])
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 
 # Provider keys stay on the server. Model IDs are configurable because catalogs change.
@@ -31,17 +33,35 @@ PROVIDERS = {
     "custom": {"label": "Custom OpenAI-compatible API", "key_env": "CUSTOM_API_KEY", "model_env": "CUSTOM_MODEL", "prefix": "openai", "base_env": "CUSTOM_API_BASE"},
 }
 _requests = defaultdict(deque)
-RATE_LIMIT = max(1, int(os.getenv("RATE_LIMIT_PER_MINUTE", "20")))
+RATE_LIMIT = max(1, int(os.getenv("RATE_LIMIT_PER_MINUTE", "8")))
+GLOBAL_RATE_LIMIT = max(10, int(os.getenv("GLOBAL_RATE_LIMIT_PER_MINUTE", "40")))
+_global_requests = deque()
+_ai_slots = asyncio.Semaphore(2)
 
 
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system"]
-    content: str = Field(min_length=1, max_length=12000)
+    content: str = Field(min_length=1, max_length=6000)
 
 
 class ChatRequest(BaseModel):
-    messages: list[ChatMessage] = Field(min_length=1, max_length=30)
+    messages: list[ChatMessage] = Field(min_length=1, max_length=20)
     provider: str = Field(default="gemini", min_length=1, max_length=40)
+
+    @model_validator(mode="after")
+    def limit_total_message_size(self):
+        if sum(len(message.content) for message in self.messages) > 24000:
+            raise ValueError("Conversation is too long. Start a new chat or shorten the messages.")
+        return self
+
+
+def require_access(request: Request) -> None:
+    expected = os.getenv("AAROHI_ACCESS_CODE", "").strip()
+    supplied = request.headers.get("X-Aarohi-Access-Code", "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="Aarohi access protection is not configured yet.")
+    if not supplied or not hmac.compare_digest(supplied, expected):
+        raise HTTPException(status_code=401, detail="Access code required or incorrect. Reload and enter the Aarohi access code.")
 
 
 def check_rate_limit(key: str) -> None:
@@ -49,9 +69,16 @@ def check_rate_limit(key: str) -> None:
     bucket = _requests[key]
     while bucket and bucket[0] < now - 60:
         bucket.popleft()
-    if len(bucket) >= RATE_LIMIT:
-        raise HTTPException(status_code=429, detail="Too many requests. Please wait a minute.")
+    while _global_requests and _global_requests[0] < now - 60:
+        _global_requests.popleft()
+    if len(bucket) >= RATE_LIMIT or len(_global_requests) >= GLOBAL_RATE_LIMIT:
+        raise HTTPException(status_code=429, detail="Aarohi is receiving many requests. Please wait a minute.")
     bucket.append(now)
+    _global_requests.append(now)
+    if len(_requests) > 5000:
+        stale = [ip for ip, hits in _requests.items() if not hits or hits[-1] < now - 120]
+        for ip in stale:
+            _requests.pop(ip, None)
 
 
 def configured_providers():
@@ -81,7 +108,8 @@ async def index():
 
 
 @app.get("/api/providers")
-async def list_providers():
+async def list_providers(request: Request):
+    require_access(request)
     return {"providers": configured_providers()}
 
 
@@ -93,6 +121,7 @@ async def health():
 
 @app.post("/api/chat")
 async def chat(payload: ChatRequest, request: Request):
+    require_access(request)
     check_rate_limit(request.client.host if request.client else "unknown")
     config = PROVIDERS.get(payload.provider)
     if not config:
@@ -117,14 +146,15 @@ async def chat(payload: ChatRequest, request: Request):
         )
     }] + [{"role": m.role, "content": m.content} for m in payload.messages if m.role != "system"]
     try:
-        result = await litellm.acompletion(
-            model=normalized_model(config, model_name),
-            messages=messages,
-            api_key=api_key,
-            **({"api_base": api_base} if api_base else {}),
-            temperature=0.4,
-            timeout=45,
-        )
+        async with _ai_slots:
+            result = await litellm.acompletion(
+                model=normalized_model(config, model_name),
+                messages=messages,
+                api_key=api_key,
+                **({"api_base": api_base} if api_base else {}),
+                temperature=0.4,
+                timeout=30,
+            )
         answer = result.choices[0].message.content
         if not isinstance(answer, str) or not answer.strip():
             raise HTTPException(status_code=502, detail="The selected model returned an empty response.")
