@@ -103,7 +103,7 @@ async function sendMessage(text) {
       return;
     }
     history.push({ role: "assistant", content: reply });
-    addMessage("assistant", "[" + (data.provider || providerSelect.value) + " · " + (data.model || "model") + "]\n" + reply);
+    addMessage("assistant", reply);
   } catch {
     pending.remove();
     addMessage("assistant", "Could not reach the Aarohi server. Check the connection or deployment.", true);
