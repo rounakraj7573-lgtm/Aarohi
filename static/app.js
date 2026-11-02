@@ -1,3 +1,4 @@
+const API_BASE = "https://aarohi-rbub.onrender.com";
 const form = document.querySelector("#chat-form");
 const input = document.querySelector("#message");
 const conversation = document.querySelector("#conversation");
@@ -28,7 +29,7 @@ function addMessage(role, content, isError = false) {
 
 async function loadProviders() {
   try {
-    const response = await fetch("/api/providers");
+    const response = await fetch(API_BASE + "/api/providers");
     if (!response.ok) throw new Error("providers unavailable");
     const data = await response.json();
     providers = Array.isArray(data.providers) ? data.providers : [];
@@ -58,7 +59,7 @@ async function loadProviders() {
 
 async function checkHealth() {
   try {
-    const response = await fetch("/api/health");
+    const response = await fetch(API_BASE + "/api/health");
     if (!response.ok) throw new Error("offline");
     const data = await response.json();
     const count = Number(data.configured_provider_count || 0);
@@ -85,7 +86,7 @@ async function sendMessage(text) {
   pending.textContent = "Aarohi is thinking…";
   conversation.appendChild(pending);
   try {
-    const response = await fetch("/api/chat", {
+    const response = await fetch(API_BASE + "/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ messages: history.slice(-20), provider: providerSelect.value })
