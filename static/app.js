@@ -14,13 +14,22 @@ const runCodeButton = document.querySelector("#run-code");
 const history = [];
 let savedMemory = localStorage.getItem("aarohi_saved_memory") || "";
 const memoryButton = document.querySelector("#save-memory");
+function refreshMemoryStatus() {
+  memoryButton.textContent = savedMemory ? "▣ Memory ✓" : "▣ Memory";
+  memoryButton.title = savedMemory
+    ? "Saved memory is stored in this browser/device and shared with Aarohi chat and agent."
+    : "No saved memory. Add a preference or project detail for this browser/device.";
+  memoryButton.setAttribute("aria-label", memoryButton.title);
+}
+refreshMemoryStatus();
 memoryButton.addEventListener("click", () => {
-  const next = window.prompt("Saved memory for Aarohi (do not save passwords or private secrets):", savedMemory);
+  const next = window.prompt("Saved memory for Aarohi on this device (max 4,000 characters). Do not save passwords or private secrets. Leave blank to clear:", savedMemory);
   if (next === null) return;
   savedMemory = next.trim().slice(0, 4000);
   if (savedMemory) localStorage.setItem("aarohi_saved_memory", savedMemory);
   else localStorage.removeItem("aarohi_saved_memory");
-  providerNote.textContent = savedMemory ? "Saved memory is on this device" : "Saved memory cleared";
+  refreshMemoryStatus();
+  providerNote.textContent = savedMemory ? "Memory saved on this device · used in chat and agent" : "Saved memory cleared from this device";
 });
 let accessCode = localStorage.getItem("aarohi_access_code") || window.prompt("Enter your Aarohi access code:") || "";
 if (accessCode) localStorage.setItem("aarohi_access_code", accessCode);
