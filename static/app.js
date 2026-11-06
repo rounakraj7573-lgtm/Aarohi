@@ -8,7 +8,7 @@ const statusLabel = document.querySelector("#status-label");
 const statusDot = document.querySelector(".status-dot");
 const providerSelect = document.querySelector("#provider-select");
 const providerNote = document.querySelector("#provider-note");
-const researchButton = document.querySelector("#research-search");\nconst agentButton = document.querySelector("#agent-run");
+const researchButton = document.querySelector("#research-search");\nconst agentButton = document.querySelector("#agent-run");\nconst runCodeButton = document.querySelector("#run-code");
 const history = [];
 let accessCode = localStorage.getItem("aarohi_access_code") || window.prompt("Enter your Aarohi access code:") || "";
 if (accessCode) localStorage.setItem("aarohi_access_code", accessCode);
@@ -127,7 +127,36 @@ async function sendMessage(text) {
 
 
 
-agentButton.addEventListener("click", async () => {
+
+
+runCodeButton.addEventListener("click", async () => {
+  const code = input.value;
+  if (!code.trim() || runCodeButton.disabled) return;
+  runCodeButton.disabled = true;
+  runCodeButton.textContent = "Running…";
+  addMessage("user", "Run Python:\\n" + code);
+  const pending = addMessage("assistant", "Running in Aarohi's restricted cloud Python runner…");
+  try {
+    const response = await fetch(API_BASE + "/api/code/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Aarohi-Access-Code": accessCode },
+      body: JSON.stringify({ code })
+    });
+    const data = await response.json().catch(() => ({}));
+    pending.remove();
+    if (!response.ok) throw new Error(data.detail || "Code execution failed.");
+    addMessage("assistant", "Python output:\\n" + String(data.output || ""));
+    input.value = "";
+    input.style.height = "auto";
+  } catch (error) {
+    pending.remove();
+    addMessage("assistant", error.message || "Code runner unavailable.", true);
+  } finally {
+    runCodeButton.disabled = false;
+    runCodeButton.textContent = "▶ Run Python";
+  }
+});
+\nagentButton.addEventListener("click", async () => {
   const task = input.value.trim();
   if (task.length < 2 || agentButton.disabled || !providerSelect.value) return;
   agentButton.disabled = true;
