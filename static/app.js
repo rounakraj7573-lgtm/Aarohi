@@ -8,8 +8,20 @@ const statusLabel = document.querySelector("#status-label");
 const statusDot = document.querySelector(".status-dot");
 const providerSelect = document.querySelector("#provider-select");
 const providerNote = document.querySelector("#provider-note");
-const researchButton = document.querySelector("#research-search");\nconst agentButton = document.querySelector("#agent-run");\nconst runCodeButton = document.querySelector("#run-code");
+const researchButton = document.querySelector("#research-search");
+const agentButton = document.querySelector("#agent-run");
+const runCodeButton = document.querySelector("#run-code");
 const history = [];
+let savedMemory = localStorage.getItem("aarohi_saved_memory") || "";
+const memoryButton = document.querySelector("#save-memory");
+memoryButton.addEventListener("click", () => {
+  const next = window.prompt("Saved memory for Aarohi (do not save passwords or private secrets):", savedMemory);
+  if (next === null) return;
+  savedMemory = next.trim().slice(0, 4000);
+  if (savedMemory) localStorage.setItem("aarohi_saved_memory", savedMemory);
+  else localStorage.removeItem("aarohi_saved_memory");
+  providerNote.textContent = savedMemory ? "Saved memory is on this device" : "Saved memory cleared";
+});
 let accessCode = localStorage.getItem("aarohi_access_code") || window.prompt("Enter your Aarohi access code:") || "";
 if (accessCode) localStorage.setItem("aarohi_access_code", accessCode);
 let providers = [];
@@ -92,7 +104,7 @@ async function sendMessage(text) {
     const response = await fetch(API_BASE + "/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Aarohi-Access-Code": accessCode },
-      body: JSON.stringify({ messages: history.slice(-20), provider: providerSelect.value })
+      body: JSON.stringify({ messages: history.slice(-20), provider: providerSelect.value, memory: savedMemory })
     });
     const data = await response.json().catch(() => ({}));
     pending.remove();
@@ -168,7 +180,7 @@ runCodeButton.addEventListener("click", async () => {
     const response = await fetch(API_BASE + "/api/agent", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Aarohi-Access-Code": accessCode },
-      body: JSON.stringify({ task, provider: providerSelect.value })
+      body: JSON.stringify({ task, provider: providerSelect.value, memory: savedMemory })
     });
     const data = await response.json().catch(() => ({}));
     pending.remove();
