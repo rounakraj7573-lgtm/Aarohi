@@ -197,7 +197,7 @@ agentButton.addEventListener("click", async () => {
     input.focus();
   }
 });
-\nresearchButton.addEventListener("click", async () => {
+researchButton.addEventListener("click", async () => {
   const query = input.value.trim();
   if (query.length < 2 || researchButton.disabled) return;
   researchButton.disabled = true;
