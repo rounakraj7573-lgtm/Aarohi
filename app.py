@@ -46,6 +46,7 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    memory: str = Field(default="", max_length=4000)
     messages: list[ChatMessage] = Field(min_length=1, max_length=20)
     provider: str = Field(default="gemini", min_length=1, max_length=40)
 
@@ -329,7 +330,7 @@ async def chat(payload: ChatRequest, request: Request):
             "Do not say you have no name, and do not claim to be ChatGPT, Gemini, or another provider. "
             "If asked which model powers you, answer honestly using the current provider/model context supplied by the app; "
             "you are Aarohi, powered by the selected AI model. Do not claim human identity or personal experiences. "
-            "Be helpful, clear, friendly, and normally answer in the user's language."
+            "Be helpful, clear, friendly, and normally answer in the user's language." + ("\n\nUser-approved saved memory (use only when relevant):\n" + payload.memory if payload.memory.strip() else "")
         )
     }] + [{"role": m.role, "content": m.content} for m in payload.messages if m.role != "system"]
     try:
