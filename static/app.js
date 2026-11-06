@@ -168,7 +168,8 @@ runCodeButton.addEventListener("click", async () => {
     runCodeButton.textContent = "▶ Run Python";
   }
 });
-\nagentButton.addEventListener("click", async () => {
+
+agentButton.addEventListener("click", async () => {
   const task = input.value.trim();
   if (task.length < 2 || agentButton.disabled || !providerSelect.value) return;
   agentButton.disabled = true;
