@@ -8,7 +8,7 @@ const statusLabel = document.querySelector("#status-label");
 const statusDot = document.querySelector(".status-dot");
 const providerSelect = document.querySelector("#provider-select");
 const providerNote = document.querySelector("#provider-note");
-const researchButton = document.querySelector("#research-search");
+const researchButton = document.querySelector("#research-search");\nconst agentButton = document.querySelector("#agent-run");
 const history = [];
 let accessCode = localStorage.getItem("aarohi_access_code") || window.prompt("Enter your Aarohi access code:") || "";
 if (accessCode) localStorage.setItem("aarohi_access_code", accessCode);
@@ -125,7 +125,37 @@ async function sendMessage(text) {
   }
 }
 
-researchButton.addEventListener("click", async () => {
+
+
+agentButton.addEventListener("click", async () => {
+  const task = input.value.trim();
+  if (task.length < 2 || agentButton.disabled || !providerSelect.value) return;
+  agentButton.disabled = true;
+  agentButton.textContent = "Working…";
+  addMessage("user", "Agent task: " + task);
+  const pending = addMessage("assistant", "Aarohi agent is choosing and running available tools…");
+  input.value = "";
+  try {
+    const response = await fetch(API_BASE + "/api/agent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Aarohi-Access-Code": accessCode },
+      body: JSON.stringify({ task, provider: providerSelect.value })
+    });
+    const data = await response.json().catch(() => ({}));
+    pending.remove();
+    if (!response.ok) throw new Error(data.detail || "Agent task failed.");
+    const used = Array.isArray(data.tools_used) && data.tools_used.length ? "\\n\\nTools used: " + data.tools_used.join(", ") : "";
+    addMessage("assistant", String(data.reply || "No result returned.") + used);
+  } catch (error) {
+    pending.remove();
+    addMessage("assistant", error.message || "Agent is temporarily unavailable.", true);
+  } finally {
+    agentButton.disabled = false;
+    agentButton.textContent = "⚙ Run agent";
+    input.focus();
+  }
+});
+\nresearchButton.addEventListener("click", async () => {
   const query = input.value.trim();
   if (query.length < 2 || researchButton.disabled) return;
   researchButton.disabled = true;
