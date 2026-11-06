@@ -245,7 +245,7 @@ async def run_agent(payload: AgentRequest, request: Request):
         raise
     except Exception:
         raise HTTPException(status_code=502, detail="Agent failed. Check the selected provider's model, key, quota, and logs.")
-\n\n
+
 
 class CodeRunRequest(BaseModel):
     code: str = Field(min_length=1, max_length=4000)
@@ -305,7 +305,9 @@ async def run_code(payload: CodeRunRequest, request: Request):
         raise HTTPException(status_code=400, detail=f"Syntax error on line {exc.lineno}.")
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)[:240])
-\n\n@app.post("/api/chat")
+
+
+@app.post("/api/chat")
 async def chat(payload: ChatRequest, request: Request):
     require_access(request)
     check_rate_limit(request.client.host if request.client else "unknown")
