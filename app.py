@@ -82,9 +82,18 @@ def check_rate_limit(key: str) -> None:
             _requests.pop(ip, None)
 
 
+def allowed_provider_ids():
+    # Keep the zero-cost beta restricted to providers the owner has approved.
+    raw = os.getenv("ALLOWED_PROVIDERS", "gemini,groq")
+    return {item.strip().lower() for item in raw.split(",") if item.strip()}
+
+
 def configured_providers():
     available = []
+    allowed = allowed_provider_ids()
     for provider_id, config in PROVIDERS.items():
+        if provider_id not in allowed:
+            continue
         key = os.getenv(config["key_env"], "").strip()
         model = os.getenv(config["model_env"], "").strip()
         base = os.getenv(config.get("base_env", ""), "").strip() if config.get("base_env") else ""
@@ -124,6 +133,8 @@ async def health():
 async def chat(payload: ChatRequest, request: Request):
     require_access(request)
     check_rate_limit(request.client.host if request.client else "unknown")
+    if payload.provider not in allowed_provider_ids():
+        raise HTTPException(status_code=403, detail="This provider is disabled in Aarohi's zero-cost beta.")
     config = PROVIDERS.get(payload.provider)
     if not config:
         raise HTTPException(status_code=400, detail="Unknown AI provider.")
