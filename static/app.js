@@ -8,6 +8,7 @@ const statusLabel = document.querySelector("#status-label");
 const statusDot = document.querySelector(".status-dot");
 const providerSelect = document.querySelector("#provider-select");
 const providerNote = document.querySelector("#provider-note");
+const researchButton = document.querySelector("#research-search");
 const history = [];
 let accessCode = localStorage.getItem("aarohi_access_code") || window.prompt("Enter your Aarohi access code:") || "";
 if (accessCode) localStorage.setItem("aarohi_access_code", accessCode);
@@ -123,6 +124,36 @@ async function sendMessage(text) {
     checkHealth();
   }
 }
+
+researchButton.addEventListener("click", async () => {
+  const query = input.value.trim();
+  if (query.length < 2 || researchButton.disabled) return;
+  researchButton.disabled = true;
+  researchButton.textContent = "Searching…";
+  const pending = addMessage("assistant", "Searching the web for: " + query);
+  try {
+    const response = await fetch(API_BASE + "/api/research", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Aarohi-Access-Code": accessCode },
+      body: JSON.stringify({ query })
+    });
+    const data = await response.json().catch(() => ({}));
+    pending.remove();
+    if (!response.ok) throw new Error(data.detail || "Web search failed.");
+    if (!Array.isArray(data.results) || !data.results.length) {
+      addMessage("assistant", "No web results found. Try a more specific search.");
+    } else {
+      const summary = data.results.map((item, index) => `${index + 1}. ${item.title}\n${item.snippet}\n${item.url}`).join("\n\n");
+      addMessage("assistant", "Web results for: " + query + "\n\n" + summary + "\n\nCheck the linked sources before relying on the information.");
+    }
+  } catch (error) {
+    pending.remove();
+    addMessage("assistant", error.message || "Web search is temporarily unavailable.", true);
+  } finally {
+    researchButton.disabled = false;
+    researchButton.textContent = "⌕ Search web";
+  }
+});
 
 form.addEventListener("submit", event => {
   event.preventDefault();
