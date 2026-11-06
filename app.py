@@ -129,6 +129,35 @@ async def health():
     return {"status": "ok", "app": "Aarohi AI", "model_configured": bool(providers), "configured_provider_count": len(providers)}
 
 
+
+
+class ResearchRequest(BaseModel):
+    query: str = Field(min_length=2, max_length=400)
+
+
+def run_web_search(query: str):
+    from ddgs import DDGS
+    return list(DDGS().text(query, max_results=5))
+
+
+@app.post("/api/research")
+async def research(payload: ResearchRequest, request: Request):
+    require_access(request)
+    check_rate_limit(request.client.host if request.client else "unknown")
+    try:
+        results = await asyncio.wait_for(asyncio.to_thread(run_web_search, payload.query), timeout=15)
+        cleaned = []
+        for item in results:
+            url = str(item.get("href") or item.get("url") or "")
+            title = str(item.get("title") or "")[:240]
+            snippet = str(item.get("body") or item.get("snippet") or "")[:700]
+            if url.startswith(("https://", "http://")) and title:
+                cleaned.append({"title": title, "url": url, "snippet": snippet})
+        return {"query": payload.query, "results": cleaned}
+    except Exception:
+        raise HTTPException(status_code=502, detail="Web search is temporarily unavailable. Try again shortly.")
+
+
 @app.post("/api/chat")
 async def chat(payload: ChatRequest, request: Request):
     require_access(request)
