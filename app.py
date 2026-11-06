@@ -117,6 +117,16 @@ def normalized_model(config, model_name: str) -> str:
 async def index():
     return FileResponse(os.path.join(BASE_DIR, "static", "index.html"))
 
+@app.get("/styles.css")
+async def serve_styles():
+    # The backend domain is also used as a preview URL; expose static assets there.
+    return FileResponse(os.path.join(BASE_DIR, "static", "styles.css"), media_type="text/css")
+
+
+@app.get("/app.js")
+async def serve_script():
+    return FileResponse(os.path.join(BASE_DIR, "static", "app.js"), media_type="application/javascript")
+
 
 @app.get("/api/providers")
 async def list_providers(request: Request):
