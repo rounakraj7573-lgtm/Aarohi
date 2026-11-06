@@ -244,6 +244,66 @@ async def run_agent(payload: AgentRequest, request: Request):
         raise
     except Exception:
         raise HTTPException(status_code=502, detail="Agent failed. Check the selected provider's model, key, quota, and logs.")
+\n\n
+
+class CodeRunRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=4000)
+
+
+def run_safe_python(source: str):
+    import ast
+    import operator
+    tree = ast.parse(source, mode="exec")
+    if len(tree.body) > 50:
+        raise ValueError("Maximum 50 statements allowed")
+    values = {}
+    output = []
+    binary = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv, ast.Mod: operator.mod, ast.Pow: operator.pow}
+    unary = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+    def expr(node):
+        if isinstance(node, ast.Constant) and type(node.value) in (int, float, str, bool): return node.value
+        if isinstance(node, ast.Name) and node.id in values: return values[node.id]
+        if isinstance(node, ast.BinOp) and type(node.op) in binary:
+            left, right = expr(node.left), expr(node.right)
+            if isinstance(node.op, ast.Pow) and (not isinstance(right, (int, float)) or abs(right) > 8): raise ValueError("Exponent too large")
+            result = binary[type(node.op)](left, right)
+            if isinstance(result, (int, float)) and abs(result) > 10**12: raise ValueError("Result too large")
+            if isinstance(result, str) and len(result) > 2000: raise ValueError("Text result too large")
+            return result
+        if isinstance(node, ast.UnaryOp) and type(node.op) in unary: return unary[type(node.op)](expr(node.operand))
+        if isinstance(node, (ast.List, ast.Tuple)):
+            items = [expr(x) for x in node.elts]
+            if len(items) > 100: raise ValueError("List too large")
+            return items
+        raise ValueError("Only numbers, text, lists, variables and basic arithmetic are supported")
+    for statement in tree.body:
+        if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and isinstance(statement.targets[0], ast.Name):
+            name = statement.targets[0].id
+            if not name.isidentifier() or name.startswith("_"): raise ValueError("Invalid variable name")
+            values[name] = expr(statement.value)
+        elif isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call) and isinstance(statement.value.func, ast.Name) and statement.value.func.id == "print" and not statement.value.keywords:
+            output.append(" ".join(str(expr(arg)) for arg in statement.value.args))
+        elif isinstance(statement, ast.Expr):
+            output.append(str(expr(statement.value)))
+        else:
+            raise ValueError("Allowed statements: variable assignment and print(expression)")
+        if sum(len(x) for x in output) > 4000: raise ValueError("Output limit exceeded")
+    return "\\n".join(output) if output else "Code ran successfully (no output)."
+
+
+@app.post("/api/code/run")
+async def run_code(payload: CodeRunRequest, request: Request):
+    require_access(request)
+    check_rate_limit(request.client.host if request.client else "unknown")
+    try:
+        result = await asyncio.wait_for(asyncio.to_thread(run_safe_python, payload.code), timeout=2)
+        return {"output": result}
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=408, detail="Execution time limit exceeded.")
+    except SyntaxError as exc:
+        raise HTTPException(status_code=400, detail=f"Syntax error on line {exc.lineno}.")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)[:240])
 \n\n@app.post("/api/chat")
 async def chat(payload: ChatRequest, request: Request):
     require_access(request)
