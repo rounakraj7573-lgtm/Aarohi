@@ -8,29 +8,9 @@ const statusLabel = document.querySelector("#status-label");
 const statusDot = document.querySelector(".status-dot");
 const providerSelect = document.querySelector("#provider-select");
 const providerNote = document.querySelector("#provider-note");
-const researchButton = document.querySelector("#research-search");
-const agentButton = document.querySelector("#agent-run");
-const runCodeButton = document.querySelector("#run-code");
+const memoryButton = document.querySelector("#save-memory");
 const history = [];
 let savedMemory = localStorage.getItem("aarohi_saved_memory") || "";
-const memoryButton = document.querySelector("#save-memory");
-function refreshMemoryStatus() {
-  memoryButton.textContent = savedMemory ? "▣ Memory ✓" : "▣ Memory";
-  memoryButton.title = savedMemory
-    ? "Saved memory is stored in this browser/device and shared with Aarohi chat and agent."
-    : "No saved memory. Add a preference or project detail for this browser/device.";
-  memoryButton.setAttribute("aria-label", memoryButton.title);
-}
-refreshMemoryStatus();
-memoryButton.addEventListener("click", () => {
-  const next = window.prompt("Saved memory for Aarohi on this device (max 4,000 characters). Do not save passwords or private secrets. Leave blank to clear:", savedMemory);
-  if (next === null) return;
-  savedMemory = next.trim().slice(0, 4000);
-  if (savedMemory) localStorage.setItem("aarohi_saved_memory", savedMemory);
-  else localStorage.removeItem("aarohi_saved_memory");
-  refreshMemoryStatus();
-  providerNote.textContent = savedMemory ? "Memory saved on this device · used in chat and agent" : "Saved memory cleared from this device";
-});
 let accessCode = localStorage.getItem("aarohi_access_code") || window.prompt("Enter your Aarohi access code:") || "";
 if (accessCode) localStorage.setItem("aarohi_access_code", accessCode);
 let providers = [];
@@ -51,6 +31,21 @@ function addMessage(role, content, isError = false) {
   return wrapper;
 }
 
+function refreshMemoryStatus() {
+  if (!memoryButton) return;
+  memoryButton.querySelector("span").textContent = savedMemory ? "Memory saved ✓" : "Memory settings";
+  memoryButton.title = "Saved memory is stored only in this browser/device.";
+}
+refreshMemoryStatus();
+memoryButton?.addEventListener("click", () => {
+  const next = window.prompt("Aarohi memory (up to 4,000 characters). Do not save passwords or private secrets. Leave blank to clear:", savedMemory);
+  if (next === null) return;
+  savedMemory = next.trim().slice(0, 4000);
+  if (savedMemory) localStorage.setItem("aarohi_saved_memory", savedMemory);
+  else localStorage.removeItem("aarohi_saved_memory");
+  refreshMemoryStatus();
+});
+
 async function loadProviders() {
   try {
     const response = await fetch(API_BASE + "/api/providers", { headers: { "X-Aarohi-Access-Code": accessCode } });
@@ -59,25 +54,23 @@ async function loadProviders() {
     providers = Array.isArray(data.providers) ? data.providers : [];
     providerSelect.replaceChildren();
     if (!providers.length) {
-      providerSelect.append(new Option("No models configured yet", ""));
+      providerSelect.append(new Option("No models configured", ""));
       providerSelect.disabled = true;
       send.disabled = true;
-      providerNote.textContent = "Add provider keys and model IDs in server environment settings.";
+      providerNote.textContent = "AI model setup is needed on the server.";
       return;
     }
-    providers.forEach(provider => {
-      providerSelect.append(new Option(provider.label + " · " + provider.model, provider.id));
-    });
+    providers.forEach(provider => providerSelect.append(new Option(provider.label + " · " + provider.model, provider.id)));
     const preferred = providers.find(provider => provider.default);
     if (preferred) providerSelect.value = preferred.id;
     providerSelect.disabled = false;
     send.disabled = false;
-    providerNote.textContent = providers.length + " provider(s) configured · keys stay server-side";
+    providerNote.textContent = "One message · automatic tool selection · keys stay server-side";
   } catch {
-    providerSelect.replaceChildren(new Option("Could not load providers", ""));
+    providerSelect.replaceChildren(new Option("Server unavailable", ""));
     providerSelect.disabled = true;
     send.disabled = true;
-    providerNote.textContent = "Server unavailable. Check deployment.";
+    providerNote.textContent = "Could not connect to Aarohi. Check the server.";
   }
 }
 
@@ -87,57 +80,75 @@ async function checkHealth() {
     if (!response.ok) throw new Error("offline");
     const data = await response.json();
     const count = Number(data.configured_provider_count || 0);
-    statusLabel.textContent = count ? "Server online · " + count + " model provider(s)" : "Server online · setup needed";
+    statusLabel.textContent = count ? "Online · " + count + " model provider(s)" : "Online · setup needed";
     statusDot.classList.add("ok");
-    statusDot.title = count ? count + " provider(s) configured" : "No AI providers configured";
   } catch {
     statusLabel.textContent = "Server status unavailable";
     statusDot.classList.remove("ok");
   }
 }
 
+function chooseRoute(message) {
+  const text = message.trim();
+  const hasUrl = /https?:\/\/|www\./i.test(text);
+  const codeLike = /(^|\n)\s*(print\s*\(|def\s+\w+|class\s+\w+|for\s+\w+\s+in\s|while\s|import\s+\w+|from\s+\w+\s+import|[A-Za-z_]\w*\s*=)/m.test(text);
+  const webIntent = /\b(search|browse|website|web|internet|online|latest|today|current|recent|news|research|source|sources|compare online|look up|find online)\b|खोज|वेबसाइट|ताज़ा|आज की खबर/i.test(text);
+  const actionIntent = /\b(build|create|make|design|plan|develop|analyze|analyse|investigate|run|execute|automate|fix|debug|deploy|write code|generate)\b/i.test(text);
+  if (codeLike) return "code";
+  if (hasUrl || webIntent || actionIntent) return "agent";
+  return "chat";
+}
+
+async function postJson(path, body) {
+  const response = await fetch(API_BASE + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Aarohi-Access-Code": accessCode },
+    body: JSON.stringify(body)
+  });
+  const data = await response.json().catch(() => ({}));
+  if (response.status === 401) {
+    localStorage.removeItem("aarohi_access_code");
+    accessCode = window.prompt("Access code incorrect. Enter your Aarohi access code:") || "";
+    if (accessCode) localStorage.setItem("aarohi_access_code", accessCode);
+    throw new Error("Access code required. Please send your message again after entering the correct code.");
+  }
+  if (!response.ok) throw new Error(data.detail || "Request failed. Please try again.");
+  return data;
+}
+
 async function sendMessage(text) {
   const message = text.trim();
   if (!message || send.disabled || !providerSelect.value) return;
   addMessage("user", message);
-  history.push({ role: "user", content: message });
   input.value = "";
   input.style.height = "auto";
   send.disabled = true;
   providerSelect.disabled = true;
   const pending = document.createElement("div");
   pending.className = "typing";
-  pending.textContent = "Aarohi is thinking…";
+  const route = chooseRoute(message);
+  pending.textContent = route === "agent" ? "Aarohi is selecting tools and researching…" : route === "code" ? "Aarohi is running the supported code task…" : "Aarohi is thinking…";
   conversation.appendChild(pending);
   try {
-    const response = await fetch(API_BASE + "/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Aarohi-Access-Code": accessCode },
-      body: JSON.stringify({ messages: history.slice(-20), provider: providerSelect.value, memory: savedMemory })
-    });
-    const data = await response.json().catch(() => ({}));
+    let reply = "";
+    if (route === "agent") {
+      const data = await postJson("/api/agent", { task: message, provider: providerSelect.value, memory: savedMemory });
+      reply = String(data.reply || "").trim();
+      if (Array.isArray(data.tools_used) && data.tools_used.length) reply += "\n\nTools used: " + data.tools_used.join(", ");
+    } else if (route === "code") {
+      const data = await postJson("/api/code/run", { code: message });
+      reply = "Code output:\n" + String(data.output || "");
+    } else {
+      history.push({ role: "user", content: message });
+      const data = await postJson("/api/chat", { messages: history.slice(-20), provider: providerSelect.value, memory: savedMemory });
+      reply = String(data.reply || "").trim();
+      if (reply) history.push({ role: "assistant", content: reply });
+    }
     pending.remove();
-    if (response.status === 401) {
-      localStorage.removeItem("aarohi_access_code");
-      accessCode = window.prompt("Access code incorrect. Enter your Aarohi access code:") || "";
-      if (accessCode) localStorage.setItem("aarohi_access_code", accessCode);
-      addMessage("assistant", "Access code required. Reload the page after entering the correct code.", true);
-      return;
-    }
-    if (!response.ok) {
-      addMessage("assistant", data.detail || "Request failed. Please try again.", true);
-      return;
-    }
-    const reply = String(data.reply || "").trim();
-    if (!reply) {
-      addMessage("assistant", "The server returned an empty reply. Please try again.", true);
-      return;
-    }
-    history.push({ role: "assistant", content: reply });
-    addMessage("assistant", reply);
-  } catch {
+    addMessage("assistant", reply || "No result returned. Please try again.");
+  } catch (error) {
     pending.remove();
-    addMessage("assistant", "Could not reach the Aarohi server. Check the connection or deployment.", true);
+    addMessage("assistant", error.message || "Aarohi could not complete that request.", true);
   } finally {
     send.disabled = providers.length === 0;
     providerSelect.disabled = providers.length === 0;
@@ -145,96 +156,6 @@ async function sendMessage(text) {
     checkHealth();
   }
 }
-
-
-
-
-
-runCodeButton.addEventListener("click", async () => {
-  const code = input.value;
-  if (!code.trim() || runCodeButton.disabled) return;
-  runCodeButton.disabled = true;
-  runCodeButton.textContent = "Running…";
-  addMessage("user", "Run Python:\\n" + code);
-  const pending = addMessage("assistant", "Running in Aarohi's restricted cloud Python runner…");
-  try {
-    const response = await fetch(API_BASE + "/api/code/run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Aarohi-Access-Code": accessCode },
-      body: JSON.stringify({ code })
-    });
-    const data = await response.json().catch(() => ({}));
-    pending.remove();
-    if (!response.ok) throw new Error(data.detail || "Code execution failed.");
-    addMessage("assistant", "Python output:\\n" + String(data.output || ""));
-    input.value = "";
-    input.style.height = "auto";
-  } catch (error) {
-    pending.remove();
-    addMessage("assistant", error.message || "Code runner unavailable.", true);
-  } finally {
-    runCodeButton.disabled = false;
-    runCodeButton.textContent = "▶ Run Python";
-  }
-});
-
-agentButton.addEventListener("click", async () => {
-  const task = input.value.trim();
-  if (task.length < 2 || agentButton.disabled || !providerSelect.value) return;
-  agentButton.disabled = true;
-  agentButton.textContent = "Working…";
-  addMessage("user", "Agent task: " + task);
-  const pending = addMessage("assistant", "Aarohi agent is choosing and running available tools…");
-  input.value = "";
-  try {
-    const response = await fetch(API_BASE + "/api/agent", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Aarohi-Access-Code": accessCode },
-      body: JSON.stringify({ task, provider: providerSelect.value, memory: savedMemory })
-    });
-    const data = await response.json().catch(() => ({}));
-    pending.remove();
-    if (!response.ok) throw new Error(data.detail || "Agent task failed.");
-    const used = Array.isArray(data.tools_used) && data.tools_used.length ? "\\n\\nTools used: " + data.tools_used.join(", ") : "";
-    addMessage("assistant", String(data.reply || "No result returned.") + used);
-  } catch (error) {
-    pending.remove();
-    addMessage("assistant", error.message || "Agent is temporarily unavailable.", true);
-  } finally {
-    agentButton.disabled = false;
-    agentButton.textContent = "⚙ Run agent";
-    input.focus();
-  }
-});
-researchButton.addEventListener("click", async () => {
-  const query = input.value.trim();
-  if (query.length < 2 || researchButton.disabled) return;
-  researchButton.disabled = true;
-  researchButton.textContent = "Searching…";
-  const pending = addMessage("assistant", "Searching the web for: " + query);
-  try {
-    const response = await fetch(API_BASE + "/api/research", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Aarohi-Access-Code": accessCode },
-      body: JSON.stringify({ query })
-    });
-    const data = await response.json().catch(() => ({}));
-    pending.remove();
-    if (!response.ok) throw new Error(data.detail || "Web search failed.");
-    if (!Array.isArray(data.results) || !data.results.length) {
-      addMessage("assistant", "No web results found. Try a more specific search.");
-    } else {
-      const summary = data.results.map((item, index) => `${index + 1}. ${item.title}\n${item.snippet}\n${item.url}`).join("\n\n");
-      addMessage("assistant", "Web results for: " + query + "\n\n" + summary + "\n\nCheck the linked sources before relying on the information.");
-    }
-  } catch (error) {
-    pending.remove();
-    addMessage("assistant", error.message || "Web search is temporarily unavailable.", true);
-  } finally {
-    researchButton.disabled = false;
-    researchButton.textContent = "⌕ Search web";
-  }
-});
 
 form.addEventListener("submit", event => {
   event.preventDefault();
