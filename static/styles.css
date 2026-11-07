@@ -69,3 +69,18 @@ button:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px sol
  .message .bubble{font-size:14px}
  .fine-print{padding:0 18px 8px}
 }
+
+
+/* Persistent conversation navigation and accessible mobile drawer controls */
+.sidebar-mobile-head{display:none;align-items:center;justify-content:space-between;margin:0 0 14px;padding:0 3px;color:#cbd3e4;font-size:13px;font-weight:700}
+.sidebar-mobile-head button{border:1px solid #39445d;background:#1a2131;color:#e8eaf4;border-radius:10px;padding:9px 11px;font-size:12px}
+.history-label{margin-top:24px}
+.chat-history{display:flex;flex-direction:column;gap:5px;max-height:42vh;overflow:auto}
+.chat-history-item{width:100%;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:10px 11px;border:1px solid transparent;border-radius:9px;background:transparent;color:#aeb9ce;font-size:12px}
+.chat-history-item:hover,.chat-history-item.active{background:#1b2334;border-color:#303a52;color:#f0efff}
+@media(max-width:760px){
+ .sidebar{padding-top:18px}
+ .sidebar-mobile-head{display:flex}
+ .sidebar{width:min(310px,86vw);max-width:86vw}
+ .chat-history{max-height:45vh}
+}
