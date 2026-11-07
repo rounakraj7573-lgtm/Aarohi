@@ -15,9 +15,8 @@
       <button class="new-chat" id="new-chat">＋ <span>New chat</span></button>
       <div class="side-label">WORKSPACE</div>
       <div class="side-item active">✧ <span>AI Assistant</span></div>
-      <div class="side-item active">⌕ <span>Web research</span><small>Ready</small></div>
-      <div class="side-item active">⌘ <span>Code lab</span><small>Ready</small></div>
-      <div class="side-item active">⚙ <span>Agent tools</span><small>Ready</small></div>
+      <button class="side-item memory-side" id="save-memory" type="button">▣ <span>Memory settings</span></button>
+      <div class="side-hint">Ask anything. Aarohi will choose the available tools automatically.</div>
       <div class="sidebar-bottom"><span class="status-dot"></span><span id="status-label">Checking server…</span></div>
     </aside>
     <main class="main">
@@ -27,7 +26,7 @@
           <div class="hero-orb">✧</div>
           <p class="eyebrow">YOUR AI WORKSPACE</p>
           <h1>What shall we<br><span>build today?</span></h1>
-          <p class="intro">Choose an available AI model, then research ideas, plan projects, and work through problems with Aarohi.</p>
+          <p class="intro">One message is all you need. Ask a question, share a website, or describe a task—Aarohi will choose the available tools.</p>
           <div class="suggestions">
             <button class="suggestion" data-prompt="Help me plan the Aarohi AI project step by step."><span>✦</span><b>Plan a project</b><small>Break an idea into clear steps</small></button>
             <button class="suggestion" data-prompt="Explain how to safely deploy an AI app in the cloud."><span>☁</span><b>Cloud deployment</b><small>Understand hosting and setup</small></button>
@@ -40,8 +39,8 @@
         <select id="provider-select" aria-label="Choose AI provider" disabled>
           <option value="">Loading available providers…</option>
         </select>
-        <textarea id="message" rows="1" maxlength="12000" placeholder="Message Aarohi…" aria-label="Message Aarohi"></textarea>
-        <div class="composer-footer"><span id="provider-note">Provider keys stay on the server.</span><button id="save-memory" type="button" class="research-button">▣ Memory</button><button id="research-search" type="button" class="research-button">⌕ Search web</button><button id="agent-run" type="button" class="research-button">⚙ Run agent</button><button id="run-code" type="button" class="research-button">▶ Run Python</button><button id="send" type="submit" aria-label="Send message" disabled>↑</button></div>
+        <textarea id="message" rows="1" maxlength="12000" placeholder="Message Aarohi…" aria-label="Message Aarohi"></textarea><div class="composer-tip">Enter to send · Shift + Enter for a new line</div>
+        <div class="composer-footer"><span id="provider-note">Your messages stay protected · provider keys stay on server</span><button id="send" type="submit" aria-label="Send message" disabled><span>↑</span></button></div>
       </form>
       <p class="fine-print">Aarohi can make mistakes. Verify important information. Providers have separate quotas and privacy policies.</p>
     </main>
