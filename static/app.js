@@ -9,13 +9,78 @@ const statusDot = document.querySelector(".status-dot");
 const providerSelect = document.querySelector("#provider-select");
 const providerNote = document.querySelector("#provider-note");
 const memoryButton = document.querySelector("#save-memory");
-const history = [];
+const chatHistory = document.querySelector("#chat-history");
+const sidebar = document.querySelector("#sidebar");
+const CHAT_STORE_KEY = "aarohi_chat_sessions_v1";
+let sessions = [];
+try { sessions = JSON.parse(localStorage.getItem(CHAT_STORE_KEY) || "[]"); } catch { sessions = []; }
+if (!Array.isArray(sessions)) sessions = [];
+sessions = sessions.filter(s => s && typeof s.id === "string" && Array.isArray(s.messages)).slice(0, 30);
+let activeSessionId = sessions[0]?.id || "";
+let history = [];
 let savedMemory = localStorage.getItem("aarohi_saved_memory") || "";
 let accessCode = localStorage.getItem("aarohi_access_code") || window.prompt("Enter your Aarohi access code:") || "";
 if (accessCode) localStorage.setItem("aarohi_access_code", accessCode);
 let providers = [];
 
-function addMessage(role, content, isError = false) {
+function currentSession() { return sessions.find(s => s.id === activeSessionId); }
+function saveSessions() {
+  try { localStorage.setItem(CHAT_STORE_KEY, JSON.stringify(sessions.slice(0, 30))); } catch {}
+}
+function makeTitle(text) {
+  const clean = String(text || "New chat").replace(/\s+/g, " ").trim();
+  return clean.length > 34 ? clean.slice(0, 34) + "…" : (clean || "New chat");
+}
+function ensureSession() {
+  if (currentSession()) return currentSession();
+  const session = { id: String(Date.now()) + Math.random().toString(36).slice(2, 7), title: "New chat", messages: [], apiHistory: [], updatedAt: Date.now() };
+  sessions.unshift(session);
+  activeSessionId = session.id;
+  saveSessions();
+  renderChatList();
+  return session;
+}
+function renderChatList() {
+  if (!chatHistory) return;
+  chatHistory.replaceChildren();
+  sessions.forEach(session => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "chat-history-item" + (session.id === activeSessionId ? " active" : "");
+    button.textContent = session.title || "New chat";
+    button.addEventListener("click", () => openSession(session.id));
+    chatHistory.appendChild(button);
+  });
+}
+function renderTranscript(session) {
+  conversation.querySelectorAll(".message,.typing").forEach(el => el.remove());
+  welcome?.classList.toggle("hidden", session.messages.length > 0);
+  session.messages.forEach(item => renderMessage(item.role, item.content, item.isError, false));
+  history = Array.isArray(session.apiHistory) ? session.apiHistory.slice(-20) : [];
+}
+function openSession(id) {
+  const session = sessions.find(s => s.id === id);
+  if (!session) return;
+  activeSessionId = id;
+  renderTranscript(session);
+  renderChatList();
+  closeSidebar();
+}
+function newChat() {
+  const session = { id: String(Date.now()) + Math.random().toString(36).slice(2, 7), title: "New chat", messages: [], apiHistory: [], updatedAt: Date.now() };
+  sessions.unshift(session);
+  sessions = sessions.slice(0, 30);
+  activeSessionId = session.id;
+  history = [];
+  renderTranscript(session);
+  renderChatList();
+  input.value = "";
+  input.style.height = "auto";
+  input.focus();
+  closeSidebar();
+  saveSessions();
+}
+function renderMessage(role, content, isError = false, persist = true) {
   welcome?.classList.add("hidden");
   const wrapper = document.createElement("div");
   wrapper.className = "message " + (role === "user" ? "user" : "assistant") + (isError ? " error" : "");
@@ -28,9 +93,22 @@ function addMessage(role, content, isError = false) {
   wrapper.append(label, bubble);
   conversation.appendChild(wrapper);
   wrapper.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  if (persist) {
+    const session = ensureSession();
+    session.messages.push({ role, content: String(content), isError: Boolean(isError) });
+    if (role === "user" && session.messages.length === 1) session.title = makeTitle(content);
+    session.updatedAt = Date.now();
+    sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+    sessions = sessions.slice(0, 30);
+    saveSessions();
+    renderChatList();
+  }
   return wrapper;
 }
-
+function addMessage(role, content, isError = false) {
+  return renderMessage(role, content, isError, true);
+}
+function closeSidebar() { sidebar?.classList.remove("open"); }
 function refreshMemoryStatus() {
   if (!memoryButton) return;
   memoryButton.querySelector("span").textContent = savedMemory ? "Memory saved ✓" : "Memory settings";
@@ -44,6 +122,7 @@ memoryButton?.addEventListener("click", () => {
   if (savedMemory) localStorage.setItem("aarohi_saved_memory", savedMemory);
   else localStorage.removeItem("aarohi_saved_memory");
   refreshMemoryStatus();
+  closeSidebar();
 });
 
 async function loadProviders() {
@@ -73,7 +152,6 @@ async function loadProviders() {
     providerNote.textContent = "Could not connect to Aarohi. Check the server.";
   }
 }
-
 async function checkHealth() {
   try {
     const response = await fetch(API_BASE + "/api/health");
@@ -87,18 +165,25 @@ async function checkHealth() {
     statusDot.classList.remove("ok");
   }
 }
-
+function extractPython(message) {
+  let code = message.trim();
+  code = code.replace(/^\s*(?:please\s+)?(?:run|execute)\s+(?:the\s+)?(?:python|phyton)\s*(?:code)?\s*[:\-]?\s*/i, "");
+  code = code.replace(/^\s*(?:python|phyton)\s*(?:code)?\s*[:\-]\s*/i, "");
+  const fenced = code.match(/```(?:python)?\s*([\s\S]*?)```/i);
+  if (fenced) code = fenced[1];
+  return code.trim();
+}
 function chooseRoute(message) {
   const text = message.trim();
   const hasUrl = /https?:\/\/|www\./i.test(text);
+  const explicitPython = /^\s*(?:please\s+)?(?:run|execute)\s+(?:the\s+)?(?:python|phyton)\b|^\s*```python/i.test(text);
   const codeLike = /(^|\n)\s*(print\s*\(|def\s+\w+|class\s+\w+|for\s+\w+\s+in\s|while\s|import\s+\w+|from\s+\w+\s+import|[A-Za-z_]\w*\s*=)/m.test(text);
   const webIntent = /\b(search|browse|website|web|internet|online|latest|today|current|recent|news|research|source|sources|compare online|look up|find online)\b|खोज|वेबसाइट|ताज़ा|आज की खबर/i.test(text);
-  const actionIntent = /\b(build|create|make|design|plan|develop|analyze|analyse|investigate|run|execute|automate|fix|debug|deploy|write code|generate)\b/i.test(text);
-  if (codeLike) return "code";
+  const actionIntent = /\b(build|create|make|design|plan|develop|analyze|analyse|investigate|execute|automate|fix|debug|deploy|write code|generate)\b/i.test(text);
+  if (explicitPython || codeLike) return "code";
   if (hasUrl || webIntent || actionIntent) return "agent";
   return "chat";
 }
-
 async function postJson(path, body) {
   const response = await fetch(API_BASE + path, {
     method: "POST",
@@ -115,10 +200,10 @@ async function postJson(path, body) {
   if (!response.ok) throw new Error(data.detail || "Request failed. Please try again.");
   return data;
 }
-
 async function sendMessage(text) {
   const message = text.trim();
   if (!message || send.disabled || !providerSelect.value) return;
+  const session = ensureSession();
   addMessage("user", message);
   input.value = "";
   input.style.height = "auto";
@@ -136,13 +221,16 @@ async function sendMessage(text) {
       reply = String(data.reply || "").trim();
       if (Array.isArray(data.tools_used) && data.tools_used.length) reply += "\n\nTools used: " + data.tools_used.join(", ");
     } else if (route === "code") {
-      const data = await postJson("/api/code/run", { code: message });
+      const code = extractPython(message);
+      const data = await postJson("/api/code/run", { code });
       reply = "Code output:\n" + String(data.output || "");
     } else {
       history.push({ role: "user", content: message });
       const data = await postJson("/api/chat", { messages: history.slice(-20), provider: providerSelect.value, memory: savedMemory });
       reply = String(data.reply || "").trim();
       if (reply) history.push({ role: "assistant", content: reply });
+      session.apiHistory = history.slice(-20);
+      saveSessions();
     }
     pending.remove();
     addMessage("assistant", reply || "No result returned. Please try again.");
@@ -156,38 +244,20 @@ async function sendMessage(text) {
     checkHealth();
   }
 }
-
-form.addEventListener("submit", event => {
-  event.preventDefault();
-  sendMessage(input.value);
-});
-input.addEventListener("input", () => {
-  input.style.height = "auto";
-  input.style.height = Math.min(input.scrollHeight, 180) + "px";
-});
+form.addEventListener("submit", event => { event.preventDefault(); sendMessage(input.value); });
+input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 180) + "px"; });
 input.addEventListener("keydown", event => {
-  if (event.key === "Enter" && !event.shiftKey) {
-    event.preventDefault();
-    form.requestSubmit();
-  }
+  if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); form.requestSubmit(); }
 });
-document.querySelectorAll("[data-prompt]").forEach(button => {
-  button.addEventListener("click", () => sendMessage(button.dataset.prompt || ""));
-});
-document.querySelector("#new-chat").addEventListener("click", () => {
-  history.length = 0;
-  conversation.querySelectorAll(".message,.typing").forEach(el => el.remove());
-  welcome?.classList.remove("hidden");
-  input.value = "";
-  input.focus();
-});
-document.querySelector("#mobile-menu").addEventListener("click", () => {
-  document.querySelector(".sidebar").classList.toggle("open");
-});
+document.querySelectorAll("[data-prompt]").forEach(button => button.addEventListener("click", () => sendMessage(button.dataset.prompt || "")));
+document.querySelector("#new-chat").addEventListener("click", newChat);
+document.querySelector("#mobile-menu").addEventListener("click", () => sidebar?.classList.toggle("open"));
+document.querySelector("#close-sidebar")?.addEventListener("click", closeSidebar);
 document.querySelector(".main").addEventListener("click", event => {
-  if (event.target.closest("a,button") && !event.target.closest("#mobile-menu")) {
-    document.querySelector(".sidebar").classList.remove("open");
-  }
+  if (event.target.closest("a,button") && !event.target.closest("#mobile-menu")) closeSidebar();
 });
+if (activeSessionId) openSession(activeSessionId);
+else newChat();
+renderChatList();
 loadProviders();
 checkHealth();
