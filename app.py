@@ -152,8 +152,7 @@ def run_web_search(query: str):
     failures = []
     for backend in ("auto", "bing", "duckduckgo"):
         try:
-            with DDGS(timeout=7) as search:
-                results = list(search.text(query, backend=backend, max_results=5))
+            results = list(DDGS(timeout=7).text(query, backend=backend, max_results=5))
             if results:
                 return results
         except Exception as exc:
@@ -234,10 +233,10 @@ async def run_agent(payload: AgentRequest, request: Request):
             tool_results.append({"tool": "calculator", "result": str(safe_calculate(task))})
         except Exception as exc:
             tool_results.append({"tool": "calculator", "error": str(exc)})
-    needs_search = bool(re.search(r"\b(latest|today|current|recent|news|search|internet|online|abhi|aaj|taaza)\b", task, re.I))
+    needs_search = bool(re.search(r"(https?://|www\.)|\b(latest|today|current|recent|news|search|internet|online|website|browse|research|look up|abhi|aaj|taaza)\b", task, re.I))
     if needs_search:
         try:
-            found = await asyncio.wait_for(asyncio.to_thread(run_web_search, task), timeout=12)
+            found = await asyncio.wait_for(asyncio.to_thread(run_web_search, task), timeout=24)
             tool_results.append({"tool": "web_search", "results": [
                 {"title": str(x.get("title") or "")[:180], "url": str(x.get("href") or x.get("url") or ""), "snippet": str(x.get("body") or "")[:500]}
                 for x in found[:5] if str(x.get("href") or x.get("url") or "").startswith(("https://", "http://"))
