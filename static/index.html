@@ -10,13 +10,13 @@
 </head>
 <body>
   <div class="app-shell">
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar"><div class="sidebar-mobile-head"><span>Menu</span><button id="close-sidebar" type="button" aria-label="Back to chat">← Back to chat</button></div>
       <a class="brand" href="/" aria-label="Aarohi home"><span class="brand-mark">A</span><span>Aarohi<span class="brand-sub">AI WORKSPACE</span></span></a>
       <button class="new-chat" id="new-chat">＋ <span>New chat</span></button>
       <div class="side-label">WORKSPACE</div>
       <div class="side-item active">✧ <span>AI Assistant</span></div>
       <button class="side-item memory-side" id="save-memory" type="button">▣ <span>Memory settings</span></button>
-      <div class="side-hint">Ask anything. Aarohi will choose the available tools automatically.</div>
+      <div class="side-label history-label">RECENT CHATS</div><nav id="chat-history" class="chat-history" aria-label="Recent chats"></nav><div class="side-hint">Your chats are saved on this device.</div>
       <div class="sidebar-bottom"><span class="status-dot"></span><span id="status-label">Checking server…</span></div>
     </aside>
     <main class="main">
