@@ -290,7 +290,7 @@ async def run_agent(payload: AgentRequest, request: Request):
             tool_results.append({"tool": "calculator", "result": str(safe_calculate(task))})
         except Exception as exc:
             tool_results.append({"tool": "calculator", "error": str(exc)})
-    url_match = re.search(r"https?://[^\\s<>\"']+|www\\.[^\\s<>\"']+", task, re.I)
+    url_match = re.search(r"https?://[^\s<>\"']+|www\.[^\s<>\"']+", task, re.I)
     page_fetched = False
     if url_match:
         try:
@@ -299,7 +299,7 @@ async def run_agent(payload: AgentRequest, request: Request):
             page_fetched = True
         except Exception as exc:
             tool_results.append({"tool": "website_reader", "error": str(exc)[:220]})
-    needs_search = bool(re.search(r"\\b(latest|today|current|recent|news|search|internet|online|website|browse|research|look up|abhi|aaj|taaza)\\b", task, re.I))
+    needs_search = bool(re.search(r"\b(latest|today|current|recent|news|search|internet|online|website|browse|research|look up|abhi|aaj|taaza)\b", task, re.I))
     if needs_search and not page_fetched:
         try:
             found = await asyncio.wait_for(asyncio.to_thread(run_web_search, task), timeout=24)
