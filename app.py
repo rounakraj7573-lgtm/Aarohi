@@ -2,6 +2,10 @@ import os
 import time
 import hmac
 import asyncio
+import socket
+import ipaddress
+from html.parser import HTMLParser
+from urllib.parse import urlparse
 from collections import defaultdict, deque
 from typing import Literal
 
@@ -146,6 +150,59 @@ class ResearchRequest(BaseModel):
     query: str = Field(min_length=2, max_length=400)
 
 
+class _PageTextParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.title = []
+        self.parts = []
+        self.in_title = False
+        self.skip_depth = 0
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() == "title": self.in_title = True
+        if tag.lower() in ("script", "style", "noscript", "svg"): self.skip_depth += 1
+    def handle_endtag(self, tag):
+        if tag.lower() == "title": self.in_title = False
+        if tag.lower() in ("script", "style", "noscript", "svg") and self.skip_depth:
+            self.skip_depth -= 1
+    def handle_data(self, data):
+        value = " ".join(data.split())
+        if not value: return
+        if self.in_title: self.title.append(value)
+        if not self.skip_depth: self.parts.append(value)
+
+
+def fetch_public_website(raw_url: str):
+    parsed = urlparse(raw_url if "://" in raw_url else "https://" + raw_url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Please provide a valid public http(s) website URL.")
+    host = parsed.hostname
+    if host.lower() == "localhost" or host.endswith(".local"):
+        raise ValueError("Local and private websites are not allowed.")
+    try:
+        addresses = {item[4][0] for item in socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)}
+    except Exception:
+        raise ValueError("The website domain could not be resolved.")
+    if not addresses or any(not ipaddress.ip_address(addr).is_global for addr in addresses):
+        raise ValueError("Only publicly reachable websites can be researched.")
+    url = parsed.geturl()
+    with httpx.Client(timeout=httpx.Timeout(8.0), follow_redirects=False, headers={"User-Agent": "AarohiResearch/1.0"}) as client:
+        with client.stream("GET", url) as response:
+            if response.status_code in (301, 302, 303, 307, 308):
+                raise ValueError("This website redirects; please use its final public URL.")
+            response.raise_for_status()
+            if "text/html" not in response.headers.get("content-type", "").lower():
+                raise ValueError("This URL does not return an HTML webpage.")
+            chunks, total = [], 0
+            for chunk in response.iter_bytes():
+                total += len(chunk)
+                if total > 1_000_000: raise ValueError("The webpage is too large to inspect safely.")
+                chunks.append(chunk)
+            encoding = response.encoding or "utf-8"
+    parser = _PageTextParser()
+    parser.feed(b"".join(chunks).decode(encoding, errors="replace"))
+    return {"url": url, "title": " ".join(parser.title)[:240], "content": " ".join(parser.parts)[:7000]}
+
+
 def run_web_search(query: str):
     # Try multiple DDGS search backends so one blocked provider does not disable research.
     from ddgs import DDGS
@@ -233,21 +290,31 @@ async def run_agent(payload: AgentRequest, request: Request):
             tool_results.append({"tool": "calculator", "result": str(safe_calculate(task))})
         except Exception as exc:
             tool_results.append({"tool": "calculator", "error": str(exc)})
-    needs_search = bool(re.search(r"(https?://|www\.)|\b(latest|today|current|recent|news|search|internet|online|website|browse|research|look up|abhi|aaj|taaza)\b", task, re.I))
-    if needs_search:
+    url_match = re.search(r"https?://[^\\s<>\"']+|www\\.[^\\s<>\"']+", task, re.I)
+    page_fetched = False
+    if url_match:
+        try:
+            page = await asyncio.wait_for(asyncio.to_thread(fetch_public_website, url_match.group(0).rstrip(".,)")), timeout=10)
+            tool_results.append({"tool": "website_reader", **page})
+            page_fetched = True
+        except Exception as exc:
+            tool_results.append({"tool": "website_reader", "error": str(exc)[:220]})
+    needs_search = bool(re.search(r"\\b(latest|today|current|recent|news|search|internet|online|website|browse|research|look up|abhi|aaj|taaza)\\b", task, re.I))
+    if needs_search and not page_fetched:
         try:
             found = await asyncio.wait_for(asyncio.to_thread(run_web_search, task), timeout=24)
-            tool_results.append({"tool": "web_search", "results": [
+            cleaned = [
                 {"title": str(x.get("title") or "")[:180], "url": str(x.get("href") or x.get("url") or ""), "snippet": str(x.get("body") or "")[:500]}
                 for x in found[:5] if str(x.get("href") or x.get("url") or "").startswith(("https://", "http://"))
-            ]})
+            ]
+            tool_results.append({"tool": "web_search", "results": cleaned} if cleaned else {"tool": "web_search", "error": "No useful search results were returned."})
         except Exception:
-            tool_results.append({"tool": "web_search", "error": "Search is temporarily unavailable."})
+            tool_results.append({"tool": "web_search", "error": "Search providers timed out or could not be reached. Do not invent results."})
 
     system = (
         "You are Aarohi, an AI agent. Complete the user's task using only the tool results provided. "
-        "Available tools in this beta: safe calculator and web search. Never claim to have used a tool if no result is supplied. "
-        "If no tool was needed, answer normally. If search results are supplied, cite their URLs inline as plain links. "
+        "Available tools in this beta: safe calculator, public webpage reader, and web search. Never claim to have used a tool if no result is supplied. If the user asks what is remembered, report the actual saved memory accurately. "
+        "If no tool was needed, answer normally. If search results or webpage content are supplied, summarize only that evidence and cite its URL inline as a plain link. If a tool fails, state the limitation clearly; never guess from a URL name. "
         "Never execute code, access accounts, send messages, purchase items, or change external systems. "
         "Be concise and answer in the user's language." + ("\n\nUser-approved saved memory (use only when relevant):\n" + payload.memory if payload.memory.strip() else "")
     )
