@@ -147,8 +147,19 @@ class ResearchRequest(BaseModel):
 
 
 def run_web_search(query: str):
+    # Try multiple DDGS search backends so one blocked provider does not disable research.
     from ddgs import DDGS
-    return list(DDGS().text(query, max_results=5))
+    failures = []
+    for backend in ("auto", "bing", "duckduckgo"):
+        try:
+            with DDGS(timeout=7) as search:
+                results = list(search.text(query, backend=backend, max_results=5))
+            if results:
+                return results
+        except Exception as exc:
+            failures.append(type(exc).__name__)
+    print("Aarohi web search failed across backends: " + ", ".join(failures or ["no results"]))
+    return []
 
 
 @app.post("/api/research")
@@ -156,7 +167,7 @@ async def research(payload: ResearchRequest, request: Request):
     require_access(request)
     check_rate_limit(request.client.host if request.client else "unknown")
     try:
-        results = await asyncio.wait_for(asyncio.to_thread(run_web_search, payload.query), timeout=15)
+        results = await asyncio.wait_for(asyncio.to_thread(run_web_search, payload.query), timeout=24)
         cleaned = []
         for item in results:
             url = str(item.get("href") or item.get("url") or "")
@@ -165,8 +176,11 @@ async def research(payload: ResearchRequest, request: Request):
             if url.startswith(("https://", "http://")) and title:
                 cleaned.append({"title": title, "url": url, "snippet": snippet})
         return {"query": payload.query, "results": cleaned}
-    except Exception:
-        raise HTTPException(status_code=502, detail="Web search is temporarily unavailable. Try again shortly.")
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Web search took too long. Try a shorter or more specific query.")
+    except Exception as exc:
+        print("Aarohi research endpoint error: " + type(exc).__name__)
+        raise HTTPException(status_code=502, detail="Web search providers could not be reached. Please retry shortly.")
 
 
 
