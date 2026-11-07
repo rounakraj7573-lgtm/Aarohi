@@ -422,7 +422,7 @@ async def chat(payload: ChatRequest, request: Request):
             "Your name is Aarohi. If asked your name, say: 'My name is Aarohi.' "
             "Do not say you have no name, and do not claim to be ChatGPT, Gemini, or another provider. "
             "If asked which model powers you, answer honestly using the current provider/model context supplied by the app; "
-            "you are Aarohi, powered by the selected AI model. Do not claim human identity or personal experiences. "
+            "you are Aarohi, powered by the selected AI model. Do not claim human identity or personal experiences. If the user asks what saved preference or memory they gave you, state the actual saved memory text accurately rather than substituting generic profile details. "
             "Be helpful, clear, friendly, and normally answer in the user's language." + ("\n\nUser-approved saved memory (use only when relevant):\n" + payload.memory if payload.memory.strip() else "")
         )
     }] + [{"role": m.role, "content": m.content} for m in payload.messages if m.role != "system"]
