@@ -246,7 +246,7 @@ async function sendMessage(text) {
   const pending = document.createElement("div");
   pending.className = "typing";
   const route = chooseRoute(message);
-  pending.textContent = route === "agent" ? "Aarohi is selecting tools and researching…" : route === "code" ? "Aarohi is running the supported code task…" : "Aarohi is thinking…";
+  pending.textContent = route === "agent" ? "Aarohi is selecting tools and researching…" : route === "code" ? "Aarohi is opening a secure cloud sandbox…" : "Aarohi is thinking…";
   conversation.appendChild(pending);
   try {
     let reply = "";
