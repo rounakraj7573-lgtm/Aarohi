@@ -6,6 +6,7 @@ import socket
 import ipaddress
 import re
 import httpx
+import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
 from urllib.parse import urlparse
 from collections import defaultdict, deque
@@ -206,17 +207,46 @@ def fetch_public_website(raw_url: str):
 
 
 def run_web_search(query: str):
-    # Try multiple DDGS search backends so one blocked provider does not disable research.
-    from ddgs import DDGS
+    # Search adapters are tried in order; RSS fallbacks need no paid API key.
     failures = []
-    for backend in ("auto", "bing", "duckduckgo"):
+    try:
+        from ddgs import DDGS
+        for backend in ("auto", "bing", "duckduckgo"):
+            try:
+                results = list(DDGS(timeout=5).text(query, backend=backend, max_results=5))
+                if results:
+                    return results
+            except Exception as exc:
+                failures.append("ddgs-" + backend + ":" + type(exc).__name__)
+    except Exception as exc:
+        failures.append("ddgs:" + type(exc).__name__)
+
+    # Bing RSS is a lightweight public search fallback.
+    feeds = [
+        ("https://www.bing.com/search", {"format": "rss", "q": query}),
+        ("https://news.google.com/rss/search", {"q": query, "hl": "en-IN", "gl": "IN", "ceid": "IN:en"}),
+    ]
+    for feed_url, params in feeds:
         try:
-            results = list(DDGS(timeout=7).text(query, backend=backend, max_results=5))
-            if results:
-                return results
+            response = httpx.get(
+                feed_url, params=params, timeout=httpx.Timeout(6.0),
+                follow_redirects=True,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; AarohiResearch/1.0)"}
+            )
+            response.raise_for_status()
+            root = ET.fromstring(response.text)
+            items = []
+            for item in root.findall(".//item")[:5]:
+                title = (item.findtext("title") or "").strip()
+                link = (item.findtext("link") or "").strip()
+                snippet = (item.findtext("description") or "").strip()
+                if title and link.startswith(("https://", "http://")):
+                    items.append({"title": title[:240], "href": link, "body": snippet[:700]})
+            if items:
+                return items
         except Exception as exc:
-            failures.append(type(exc).__name__)
-    print("Aarohi web search failed across backends: " + ", ".join(failures or ["no results"]))
+            failures.append(feed_url.split("/")[2] + ":" + type(exc).__name__)
+    print("Aarohi web search failed across sources: " + ", ".join(failures or ["no results"]))
     return []
 
 
@@ -225,7 +255,7 @@ async def research(payload: ResearchRequest, request: Request):
     require_access(request)
     check_rate_limit(request.client.host if request.client else "unknown")
     try:
-        results = await asyncio.wait_for(asyncio.to_thread(run_web_search, payload.query), timeout=24)
+        results = await asyncio.wait_for(asyncio.to_thread(run_web_search, payload.query), timeout=30)
         cleaned = []
         for item in results:
             url = str(item.get("href") or item.get("url") or "")
@@ -312,7 +342,7 @@ async def run_agent(payload: AgentRequest, request: Request):
     needs_search = bool(re.search(r"\b(latest|today|current|recent|news|search|internet|online|website|browse|research|look up|abhi|aaj|taaza)\b", task, re.I))
     if needs_search:
         try:
-            found = await asyncio.wait_for(asyncio.to_thread(run_web_search, task), timeout=24)
+            found = await asyncio.wait_for(asyncio.to_thread(run_web_search, task), timeout=30)
             cleaned = [
                 {"title": str(x.get("title") or "")[:180], "url": str(x.get("href") or x.get("url") or ""), "snippet": str(x.get("body") or "")[:500]}
                 for x in found[:5] if str(x.get("href") or x.get("url") or "").startswith(("https://", "http://"))
