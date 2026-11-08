@@ -60,6 +60,48 @@ function currentSession() { return sessions.find(s => s.id === activeSessionId);
 function saveSessions() {
   try { localStorage.setItem(CHAT_STORE_KEY, JSON.stringify(sessions.slice(0, 30))); } catch {}
 }
+function exportAarohiBackup() {
+  const payload = {
+    app: "Aarohi AI",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    memory: savedMemory,
+    sessions
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "aarohi-backup.json";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+async function importAarohiBackup(file) {
+  if (!file || file.size > 2_000_000) throw new Error("Backup file is too large (2 MB maximum).");
+  const parsed = JSON.parse(await file.text());
+  if (!parsed || parsed.app !== "Aarohi AI" || !Array.isArray(parsed.sessions)) throw new Error("This is not a valid Aarohi backup.");
+  const imported = parsed.sessions.filter(item => item && typeof item.id === "string" && Array.isArray(item.messages))
+    .slice(0, 30).map(item => ({
+      id: item.id.slice(0, 100),
+      title: makeTitle(item.title || "Imported chat"),
+      updatedAt: Number(item.updatedAt) || Date.now(),
+      apiHistory: Array.isArray(item.apiHistory) ? item.apiHistory.filter(m => m && ["user","assistant"].includes(m.role) && typeof m.content === "string").slice(-20) : [],
+      messages: item.messages.filter(m => m && ["user","assistant"].includes(m.role) && typeof m.content === "string")
+        .slice(-200).map(m => ({ role: m.role, content: m.content.slice(0, 12000), isError: Boolean(m.isError) }))
+    }));
+  sessions = [...imported, ...sessions].filter((item, index, all) => all.findIndex(other => other.id === item.id) === index)
+    .sort((a,b) => b.updatedAt - a.updatedAt).slice(0, 30);
+  if (typeof parsed.memory === "string") {
+    savedMemory = parsed.memory.slice(0, 4000);
+    if (savedMemory) localStorage.setItem("aarohi_saved_memory", savedMemory);
+    else localStorage.removeItem("aarohi_saved_memory");
+    refreshMemoryStatus();
+  }
+  saveSessions();
+  activeSessionId = sessions[0]?.id || "";
+  if (activeSessionId) openSession(activeSessionId); else newChat();
+  renderChatList();
+}
 function makeTitle(text) {
   const clean = String(text || "New chat").replace(/\s+/g, " ").trim();
   return clean.length > 34 ? clean.slice(0, 34) + "…" : (clean || "New chat");
@@ -76,14 +118,43 @@ function ensureSession() {
 function renderChatList() {
   if (!chatHistory) return;
   chatHistory.replaceChildren();
-  sessions.forEach(session => {
+  const query = (document.querySelector("#chat-search")?.value || "").trim().toLowerCase();
+  const visible = sessions.filter(session => !query || String(session.title || "").toLowerCase().includes(query));
+  visible.forEach(session => {
+    const row = document.createElement("div");
+    row.className = "chat-history-row";
     const button = document.createElement("button");
     button.type = "button";
     button.className = "chat-history-item" + (session.id === activeSessionId ? " active" : "");
     button.textContent = session.title || "New chat";
     button.addEventListener("click", () => openSession(session.id));
-    chatHistory.appendChild(button);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "chat-delete";
+    remove.textContent = "×";
+    remove.title = "Delete this chat";
+    remove.setAttribute("aria-label", "Delete " + (session.title || "chat"));
+    remove.addEventListener("click", event => {
+      event.stopPropagation();
+      if (!window.confirm("Delete this chat from this device?")) return;
+      sessions = sessions.filter(item => item.id !== session.id);
+      if (activeSessionId === session.id) {
+        activeSessionId = "";
+        newChat();
+      } else {
+        saveSessions();
+        renderChatList();
+      }
+    });
+    row.append(button, remove);
+    chatHistory.appendChild(row);
   });
+  if (!visible.length) {
+    const empty = document.createElement("p");
+    empty.className = "chat-empty";
+    empty.textContent = "No matching chats";
+    chatHistory.appendChild(empty);
+  }
 }
 function renderTranscript(session) {
   conversation.querySelectorAll(".message,.typing").forEach(el => el.remove());
@@ -262,15 +333,19 @@ async function sendMessage(text) {
       const data = await postJson("/api/code/run", { code });
       reply = "Code output:\n" + String(data.output || "") + (data.error ? "\n\nError:\n" + String(data.error) : "");
     } else {
-      history.push({ role: "user", content: message });
-      const data = await postJson("/api/chat", { messages: history.slice(-20), provider: providerSelect.value, memory: savedMemory });
+      const context = history.concat({ role: "user", content: message }).slice(-19);
+      const data = await postJson("/api/chat", { messages: context, provider: providerSelect.value, memory: savedMemory });
       reply = String(data.reply || "").trim();
-      if (reply) history.push({ role: "assistant", content: reply });
-      session.apiHistory = history.slice(-20);
-      saveSessions();
     }
+    const finalReply = reply || "No result returned. Please try again.";
+    history = history.concat(
+      { role: "user", content: message },
+      { role: "assistant", content: finalReply }
+    ).slice(-20);
+    session.apiHistory = history;
+    saveSessions();
     pending.remove();
-    addMessage("assistant", reply || "No result returned. Please try again.");
+    addMessage("assistant", finalReply);
   } catch (error) {
     pending.remove();
     addMessage("assistant", error.message || "Aarohi could not complete that request.", true);
@@ -298,3 +373,12 @@ else newChat();
 renderChatList();
 loadProviders();
 checkHealth();
+
+document.querySelector("#chat-search")?.addEventListener("input", renderChatList);
+document.querySelector("#export-backup")?.addEventListener("click", exportAarohiBackup);
+document.querySelector("#import-backup")?.addEventListener("click", () => document.querySelector("#backup-file")?.click());
+document.querySelector("#backup-file")?.addEventListener("change", async event => {
+  try { await importAarohiBackup(event.target.files?.[0]); window.alert("Aarohi backup restored on this device."); }
+  catch (error) { window.alert(error.message || "Could not restore backup."); }
+  event.target.value = "";
+});
