@@ -179,9 +179,10 @@ function chooseRoute(message) {
   const explicitPython = /^\s*(?:please\s+)?(?:run|execute)\s+(?:the\s+)?(?:python|phyton)\b|^\s*```python/i.test(text);
   const codeLike = /(^|\n)\s*(print\s*\(|def\s+\w+|class\s+\w+|for\s+\w+\s+in\s|while\s|import\s+\w+|from\s+\w+\s+import|[A-Za-z_]\w*\s*=)/m.test(text);
   const webIntent = /\b(search|browse|website|web|internet|online|latest|today|current|recent|news|research|source|sources|compare online|look up|find online)\b|खोज|वेबसाइट|ताज़ा|आज की खबर/i.test(text);
+  const mathIntent = /\b(calculate|compute|calculator|solve|multiply|divide|add|subtract)\b|[×÷]/i.test(text);
   const actionIntent = /\b(build|create|make|design|plan|develop|analyze|analyse|investigate|execute|automate|fix|debug|deploy|write code|generate)\b/i.test(text);
   if (explicitPython || codeLike) return "code";
-  if (hasUrl || webIntent || actionIntent) return "agent";
+  if (hasUrl || webIntent || mathIntent || actionIntent) return "agent";
   return "chat";
 }
 async function postJson(path, body) {
