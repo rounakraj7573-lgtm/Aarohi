@@ -20,11 +20,23 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-app = FastAPI(title="Aarohi AI", version="0.2.0")
+app = FastAPI(title="Aarohi AI", version="0.2.0", docs_url=None, redoc_url=None, openapi_url=None)
 # Allow the separately hosted static frontend to call this API.
 allowed_origins = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "https://aarohi-home.onrender.com").split(",") if origin.strip()]
-app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "X-Aarohi-Access-Code", "X-Aarohi-Workspace-ID"])
+app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], allow_headers=["Content-Type", "X-Aarohi-Access-Code", "X-Aarohi-Workspace-ID"], max_age=600)
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    # Avoid exposing API responses to browser MIME sniffing or framing.
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 # Provider keys stay on the server. Model IDs are configurable because catalogs change.
 PROVIDERS = {
@@ -50,6 +62,9 @@ _code_slots = asyncio.Semaphore(1)
 # Free beta workspace: bounded, in-memory files only. Contents are lost on restart/redeploy.
 # This is deliberately NOT an OS-level sandbox and never executes uploaded files.
 _workspace_files = defaultdict(dict)
+_workspace_last_seen = {}
+MAX_WORKSPACES = 500
+WORKSPACE_TTL_SECONDS = 24 * 60 * 60
 MAX_WORKSPACE_FILES = 10
 MAX_WORKSPACE_FILE_BYTES = 16_384
 MAX_WORKSPACE_TOTAL_BYTES = 65_536
@@ -59,7 +74,19 @@ def workspace_key(request: Request) -> str:
     if not re.fullmatch(r"[A-Za-z0-9_-]{16,80}", workspace_id):
         raise HTTPException(status_code=400, detail="A valid browser workspace ID is required.")
     client_ip = request.client.host if request.client else "unknown"
-    return client_ip + ":" + workspace_id
+    key = client_ip + ":" + workspace_id
+    now = time.time()
+    # Expire abandoned workspaces and cap total in-memory namespaces.
+    expired = [item for item, seen in _workspace_last_seen.items() if seen < now - WORKSPACE_TTL_SECONDS]
+    for item in expired:
+        _workspace_last_seen.pop(item, None)
+        _workspace_files.pop(item, None)
+    if key not in _workspace_last_seen and len(_workspace_last_seen) >= MAX_WORKSPACES:
+        oldest = min(_workspace_last_seen, key=_workspace_last_seen.get)
+        _workspace_last_seen.pop(oldest, None)
+        _workspace_files.pop(oldest, None)
+    _workspace_last_seen[key] = now
+    return key
 
 def validate_workspace_filename(name: str) -> str:
     name = name.strip()
