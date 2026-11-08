@@ -1,70 +1,60 @@
 # Aarohi AI
 
-Aarohi is a cloud-first AI workspace. The phone runs the web interface; model requests run on the server and the selected provider's infrastructure.
+Aarohi is a cloud-first AI assistant. The Android phone/browser runs the interface; AI requests and Python execution run in cloud services.
 
-## Multi-provider support
+## Current architecture
 
-Aarohi uses LiteLLM to route chat requests to configured providers:
-- OpenAI / ChatGPT API
-- Google Gemini
-- OpenRouter (gateway to multiple model providers; select explicitly free models to avoid charges)
-- Groq
-- Cohere
-- Meta Llama models hosted through Together AI
-- Anthropic Claude
-- DeepSeek
-- Mistral
-- Custom OpenAI-compatible HTTPS endpoints
+- **Frontend:** static HTML/CSS/JavaScript hosted on Render.
+- **Backend:** FastAPI + LiteLLM on Render.
+- **AI providers:** provider registry supports Gemini, Groq, OpenAI, OpenRouter, Cohere, Together AI (Llama hosting), Anthropic, DeepSeek, Mistral and custom OpenAI-compatible endpoints. Only IDs in `ALLOWED_PROVIDERS` with a configured API key and model ID appear in the app.
+- **Web research:** DDGS search with public RSS fallbacks; results may be incomplete or unavailable.
+- **Agent tools:** calculator, public webpage reader and web search. Website content is untrusted input and is not treated as instructions.
+- **Python:** `/api/code/run` uses Tensorlake's isolated cloud sandbox when `TENSORLAKE_API_KEY` is configured. Current settings request 1 vCPU, 1 GB RAM, a 60-second sandbox lifetime, a 20-second process timeout, no guest internet access, one concurrent run, and context-managed cleanup. Availability and exact free-tier limits depend on Tensorlake's current account plan.
+- **Workspace files:** small, temporary in-memory files; max 10 files, 16 KB per file, 64 KB total per workspace, 500 workspaces, and 24-hour idle expiry. Files can disappear on restart or eviction.
+- **Chat history and saved memory:** stored in the current browser/device. Export/import JSON backup is available; there is no automatic cloud sync.
 
-Meta Llama is a model family, not a universal Meta-hosted API endpoint. This starter configures Together AI as one possible host for Llama models.
+## Server environment
 
-## Configure providers
+Set secrets only in the backend hosting dashboard. Never paste them into chat, frontend JavaScript, GitHub, screenshots, or logs.
 
-In the hosting dashboard (or a private local .env file), set a provider's API key AND its model ID. The app only shows providers with both values configured.
+Required for the private beta:
+- `AAROHI_ACCESS_CODE` — private shared access code.
+- `CORS_ORIGINS` — exact frontend origin, e.g. `https://aarohi-home.onrender.com`.
+- `ALLOWED_PROVIDERS` — explicit provider allowlist.
+- For each enabled provider, its API key and exact model ID (for example `GEMINI_API_KEY` + `GEMINI_MODEL`).
+- `TENSORLAKE_API_KEY` — required for isolated cloud Python execution.
 
-- OPENAI_API_KEY and OPENAI_MODEL
-- GEMINI_API_KEY and GEMINI_MODEL
-- OPENROUTER_API_KEY and OPENROUTER_MODEL (choose a free model and confirm its current pricing before use)
-- GROQ_API_KEY and GROQ_MODEL
-- COHERE_API_KEY and COHERE_MODEL
-- TOGETHER_API_KEY and TOGETHER_MODEL for Meta Llama models served by Together
-- ANTHROPIC_API_KEY and ANTHROPIC_MODEL
-- DEEPSEEK_API_KEY and DEEPSEEK_MODEL
-- MISTRAL_API_KEY and MISTRAL_MODEL
-- Custom endpoint: CUSTOM_API_BASE, CUSTOM_API_KEY, CUSTOM_MODEL
+Optional limits:
+- `RATE_LIMIT_PER_MINUTE` (default 8 per client).
+- `GLOBAL_RATE_LIMIT_PER_MINUTE` (default 40 per process).
+- `DEFAULT_AI_PROVIDER` (default Gemini).
 
-Use the exact current model ID shown by each provider. Model catalogs change. DEFAULT_AI_PROVIDER controls the preselected provider when configured. API keys must be set only in server-side environment settings and never committed to GitHub or exposed in browser code.
+**Zero-cost reminder:** a provider being integrated does not mean its API is free. Check the selected provider/model's current pricing and free quota before enabling it. To keep the strict ₹0 target, enable only models that explicitly offer a free quota and do not add billing, paid credits, auto-refill, or paid upgrades. Tensorlake free-tier access is subject to its current terms and availability. Aarohi does not guarantee unlimited free usage.
 
-## Run locally
+## Security controls
 
-Python 3.11+ recommended.
+- Shared access-code check on private API routes, using constant-time comparison.
+- Per-client and global in-memory request limits.
+- Conversation, prompt, workspace-file and output size limits.
+- Exact-origin CORS; only required HTTP methods and headers are allowed.
+- API docs/OpenAPI routes disabled on the deployed app.
+- Browser security headers and no-store on API responses.
+- Non-root Docker user.
+- Workspace namespace count and idle-expiry caps.
+- Sandbox guest has no network access; provider/sandbox keys remain server-side.
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-dev.txt
-cp .env.example .env
-uvicorn app:app --reload
-```
-
-Open http://127.0.0.1:8000. Configure at least one provider key and model ID to send real model requests.
+These are safeguards for a small private beta, not a substitute for individual accounts, persistent distributed rate limiting, security review, or production abuse monitoring.
 
 ## Deploy
 
-Deploy as a Docker web service on a compatible host. render.yaml lists optional environment settings; add actual secrets and valid model IDs in the host dashboard. Deployment and provider connectivity must be tested before considering Aarohi live.
+Backend is a Docker web service; frontend is a static site. Add secrets through the hosting dashboard only. Review Render build/deploy status after every commit. A successful build alone does not prove provider connectivity or sandbox execution.
 
-## Security and limitations
+## Known limitations / final verification
 
-- Providers have separate terms, data handling, quotas, and pricing; not all are free.
-- Requests are sent to the provider selected in the model picker. Avoid sending sensitive data unless you have reviewed that provider's policies.
-- This starter does not yet execute arbitrary user code. A coding agent needs a separate isolated sandbox with strict CPU, memory, time, and network limits.
-- GitHub write actions, persistent memory, background jobs, web research, and autonomous self-modification are not yet enabled in this starter.
-- The private beta uses a shared access code stored only in the backend environment; it is not individual user accounts.
-- Chat requests require the access code, are limited per client and globally per minute, restrict conversation size, and allow at most two simultaneous provider calls per process.
-- Rate limits are in-memory and reset when the service restarts; they are a free-tier safeguard, not enterprise-grade abuse prevention.
-- Keep the access code private. Anyone who has it can use the configured provider quota. Rotate it in the hosting dashboard if it is shared accidentally.
-- Never expose API tokens in frontend JavaScript, logs, screenshots, or commits.
-
-## Project status
-
-The multi-provider selector and routing foundation are in the repository. Providers will appear only after their API keys and model IDs are configured on the server. Deployment, provider calls, and runtime tests still need verification.
+- No full end-to-end test has yet been completed for all providers, web research, agent tools, Tensorlake execution, workspace CRUD, chat backup/restore, mobile UI, or error cases.
+- Python package availability inside the sandbox has not been verified; do not assume NumPy, Matplotlib, or every PyPI package is installed.
+- Workspace files are temporary and in-memory.
+- Chat/memory data is browser-local until exported.
+- Public search sources can fail or return irrelevant results.
+- Free-tier quotas and model pricing can change; review them before use.
+- Complete one combined verification pass before calling the project production-ready.
