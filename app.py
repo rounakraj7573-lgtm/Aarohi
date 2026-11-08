@@ -23,7 +23,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = FastAPI(title="Aarohi AI", version="0.2.0")
 # Allow the separately hosted static frontend to call this API.
 allowed_origins = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "https://aarohi-home.onrender.com").split(",") if origin.strip()]
-app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "X-Aarohi-Access-Code"])
+app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "X-Aarohi-Access-Code", "X-Aarohi-Workspace-ID"])
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 
 # Provider keys stay on the server. Model IDs are configurable because catalogs change.
@@ -45,6 +45,75 @@ RATE_LIMIT = max(1, int(os.getenv("RATE_LIMIT_PER_MINUTE", "8")))
 GLOBAL_RATE_LIMIT = max(10, int(os.getenv("GLOBAL_RATE_LIMIT_PER_MINUTE", "40")))
 _global_requests = deque()
 _ai_slots = asyncio.Semaphore(2)
+
+# Free beta workspace: bounded, in-memory files only. Contents are lost on restart/redeploy.
+# This is deliberately NOT an OS-level sandbox and never executes uploaded files.
+_workspace_files = defaultdict(dict)
+MAX_WORKSPACE_FILES = 10
+MAX_WORKSPACE_FILE_BYTES = 16_384
+MAX_WORKSPACE_TOTAL_BYTES = 65_536
+
+def workspace_key(request: Request) -> str:
+    workspace_id = request.headers.get("X-Aarohi-Workspace-ID", "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{16,80}", workspace_id):
+        raise HTTPException(status_code=400, detail="A valid browser workspace ID is required.")
+    client_ip = request.client.host if request.client else "unknown"
+    return client_ip + ":" + workspace_id
+
+def validate_workspace_filename(name: str) -> str:
+    name = name.strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]{0,63}", name) or name in (".", "..") or ".." in name:
+        raise HTTPException(status_code=400, detail="Use a simple filename (letters, numbers, dot, dash or underscore).")
+    return name
+
+class WorkspaceFileInput(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    content: str = Field(max_length=MAX_WORKSPACE_FILE_BYTES)
+
+@app.get("/api/workspace/files")
+async def list_workspace_files(request: Request):
+    require_access(request)
+    check_rate_limit(request.client.host if request.client else "unknown")
+    files = _workspace_files[workspace_key(request)]
+    return {"files": [{"name": name, "size": len(content.encode("utf-8"))} for name, content in sorted(files.items())],
+            "temporary": True, "note": "Files are held in server memory and may be cleared on restart or redeploy."}
+
+@app.get("/api/workspace/files/{name}")
+async def read_workspace_file(name: str, request: Request):
+    require_access(request)
+    check_rate_limit(request.client.host if request.client else "unknown")
+    name = validate_workspace_filename(name)
+    content = _workspace_files[workspace_key(request)].get(name)
+    if content is None:
+        raise HTTPException(status_code=404, detail="File not found.")
+    return {"name": name, "content": content}
+
+@app.put("/api/workspace/files")
+async def write_workspace_file(payload: WorkspaceFileInput, request: Request):
+    require_access(request)
+    check_rate_limit(request.client.host if request.client else "unknown")
+    name = validate_workspace_filename(payload.name)
+    files = _workspace_files[workspace_key(request)]
+    if name not in files and len(files) >= MAX_WORKSPACE_FILES:
+        raise HTTPException(status_code=413, detail="Workspace file limit reached (10 files).")
+    total = sum(len(value.encode("utf-8")) for value in files.values())
+    old_size = len(files.get(name, "").encode("utf-8"))
+    new_size = len(payload.content.encode("utf-8"))
+    if total - old_size + new_size > MAX_WORKSPACE_TOTAL_BYTES:
+        raise HTTPException(status_code=413, detail="Workspace storage limit reached (64 KB).")
+    files[name] = payload.content
+    return {"saved": True, "name": name, "size": new_size, "temporary": True}
+
+@app.delete("/api/workspace/files/{name}")
+async def delete_workspace_file(name: str, request: Request):
+    require_access(request)
+    check_rate_limit(request.client.host if request.client else "unknown")
+    name = validate_workspace_filename(name)
+    files = _workspace_files[workspace_key(request)]
+    if name not in files:
+        raise HTTPException(status_code=404, detail="File not found.")
+    del files[name]
+    return {"deleted": True, "name": name}
 
 
 class ChatMessage(BaseModel):
