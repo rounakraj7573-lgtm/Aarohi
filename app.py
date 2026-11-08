@@ -4,6 +4,8 @@ import hmac
 import asyncio
 import socket
 import ipaddress
+import re
+import httpx
 from html.parser import HTMLParser
 from urllib.parse import urlparse
 from collections import defaultdict, deque
@@ -282,12 +284,20 @@ async def run_agent(payload: AgentRequest, request: Request):
 
     task = payload.task.strip()
     tool_results = []
-    # Tool 1: safe arithmetic. Only a restricted AST is evaluated; no Python code execution.
-    import re
-    math_match = re.fullmatch(r"[\d\s()+\-*/%.]+", task)
-    if math_match and any(char.isdigit() for char in task):
+    # Tool 1: detect both raw expressions and common natural-language calculations.
+    expression = task.strip()
+    natural_math = re.search(
+        r"(?:calculate|compute|what is|solve)\s+([\d\s().,+\-*/%×x]+)",
+        task, re.I
+    )
+    if natural_math:
+        expression = natural_math.group(1).strip().rstrip("?. ")
+    expression = expression.replace("×", "*")
+    expression = re.sub(r"(?<=\d)\s+x\s+(?=\d)", "*", expression, flags=re.I)
+    math_match = re.fullmatch(r"[\d\s()+\-*/%.]+", expression)
+    if math_match and any(char.isdigit() for char in expression):
         try:
-            tool_results.append({"tool": "calculator", "result": str(safe_calculate(task))})
+            tool_results.append({"tool": "calculator", "expression": expression, "result": str(safe_calculate(expression))})
         except Exception as exc:
             tool_results.append({"tool": "calculator", "error": str(exc)})
     url_match = re.search(r"https?://[^\s<>\"']+|www\.[^\s<>\"']+", task, re.I)
@@ -300,7 +310,7 @@ async def run_agent(payload: AgentRequest, request: Request):
         except Exception as exc:
             tool_results.append({"tool": "website_reader", "error": str(exc)[:220]})
     needs_search = bool(re.search(r"\b(latest|today|current|recent|news|search|internet|online|website|browse|research|look up|abhi|aaj|taaza)\b", task, re.I))
-    if needs_search and not page_fetched:
+    if needs_search:
         try:
             found = await asyncio.wait_for(asyncio.to_thread(run_web_search, task), timeout=24)
             cleaned = [
@@ -308,12 +318,13 @@ async def run_agent(payload: AgentRequest, request: Request):
                 for x in found[:5] if str(x.get("href") or x.get("url") or "").startswith(("https://", "http://"))
             ]
             tool_results.append({"tool": "web_search", "results": cleaned} if cleaned else {"tool": "web_search", "error": "No useful search results were returned."})
-        except Exception:
+        except Exception as exc:
+            print("Aarohi agent search error: " + type(exc).__name__)
             tool_results.append({"tool": "web_search", "error": "Search providers timed out or could not be reached. Do not invent results."})
 
     system = (
-        "You are Aarohi, an AI agent. Complete the user's task using only the tool results provided. "
-        "Available tools in this beta: safe calculator, public webpage reader, and web search. Never claim to have used a tool if no result is supplied. If the user asks what is remembered, report the actual saved memory accurately. "
+        "You are Aarohi, an AI agent. First identify the user's goal, then use every relevant available tool result before answering. "
+        "Available tools in this beta: safe calculator, public webpage reader, and web search. A task may use more than one tool in sequence. Never claim to have used a tool if no result is supplied. If the user asks what is remembered, report the actual saved memory accurately. "
         "If no tool was needed, answer normally. If search results or webpage content are supplied, summarize only that evidence and cite its URL inline as a plain link. If a tool fails, state the limitation clearly; never guess from a URL name. "
         "Never execute code, access accounts, send messages, purchase items, or change external systems. "
         "Be concise and answer in the user's language." + ("\n\nUser-approved saved memory (use only when relevant):\n" + payload.memory if payload.memory.strip() else "")
@@ -334,8 +345,9 @@ async def run_agent(payload: AgentRequest, request: Request):
         return {"reply": answer.strip(), "tools_used": [x["tool"] for x in tool_results], "tool_results": tool_results}
     except HTTPException:
         raise
-    except Exception:
-        raise HTTPException(status_code=502, detail="Agent failed. Check the selected provider's model, key, quota, and logs.")
+    except Exception as exc:
+        print("Aarohi agent model error: " + type(exc).__name__)
+        raise HTTPException(status_code=502, detail="Aarohi's AI model request failed. Check the selected provider's model configuration, free-tier quota, and server logs.")
 
 
 class CodeRunRequest(BaseModel):
