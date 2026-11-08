@@ -260,7 +260,7 @@ async function sendMessage(text) {
     } else if (route === "code") {
       const code = extractPython(message);
       const data = await postJson("/api/code/run", { code });
-      reply = "Code output:\n" + String(data.output || "");
+      reply = "Code output:\n" + String(data.output || "") + (data.error ? "\n\nError:\n" + String(data.error) : "");
     } else {
       history.push({ role: "user", content: message });
       const data = await postJson("/api/chat", { messages: history.slice(-20), provider: providerSelect.value, memory: savedMemory });
