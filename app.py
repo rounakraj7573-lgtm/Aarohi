@@ -45,6 +45,7 @@ RATE_LIMIT = max(1, int(os.getenv("RATE_LIMIT_PER_MINUTE", "8")))
 GLOBAL_RATE_LIMIT = max(10, int(os.getenv("GLOBAL_RATE_LIMIT_PER_MINUTE", "40")))
 _global_requests = deque()
 _ai_slots = asyncio.Semaphore(2)
+_code_slots = asyncio.Semaphore(1)
 
 # Free beta workspace: bounded, in-memory files only. Contents are lost on restart/redeploy.
 # This is deliberately NOT an OS-level sandbox and never executes uploaded files.
@@ -494,19 +495,73 @@ def run_safe_python(source: str):
     return "\n".join(output) if output else "Code ran successfully (no output)."
 
 
+def run_tensorlake_python(source: str):
+    api_key = os.getenv("TENSORLAKE_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("Cloud code execution is not configured. Add TENSORLAKE_API_KEY in the backend environment.")
+
+    # The key stays in the Aarohi backend. It is never passed into the guest VM.
+    from tensorlake.sandbox import SandboxClient
+
+    client = SandboxClient.for_cloud(api_key=api_key, request_timeout=45)
+    try:
+        # One small, offline microVM per run. Context exit terminates it.
+        with client.create_and_connect(
+            cpus=1.0,
+            memory_mb=1024,
+            timeout_secs=60,
+            request_timeout=45,
+            cancel_on_timeout=True,
+            allow_internet_access=False,
+            allow_unauthenticated_access=False,
+            exposed_ports=[],
+        ) as sandbox:
+            result = sandbox.run("python3", ["-c", source], timeout=20)
+            stdout = (result.stdout or "")[:4000]
+            stderr = (result.stderr or "")[:2000]
+            if result.timed_out:
+                raise TimeoutError("Python execution exceeded the 20-second limit.")
+            if result.exit_code != 0:
+                detail = stderr.strip() or f"Python exited with code {result.exit_code}."
+                return {"output": stdout, "error": detail[:2000], "exit_code": result.exit_code,
+                        "execution": "Tensorlake isolated cloud sandbox"}
+            return {"output": stdout or "Code ran successfully (no output).",
+                    "stderr": stderr, "exit_code": 0,
+                    "execution": "Tensorlake isolated cloud sandbox"}
+    finally:
+        client.close()
+
+
 @app.post("/api/code/run")
 async def run_code(payload: CodeRunRequest, request: Request):
     require_access(request)
     check_rate_limit(request.client.host if request.client else "unknown")
+    if not await _try_acquire_code_slot():
+        raise HTTPException(status_code=429, detail="Aarohi's cloud code runner is busy. Please try again shortly.")
     try:
-        result = await asyncio.wait_for(asyncio.to_thread(run_safe_python, payload.code), timeout=2)
-        return {"output": result}
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=408, detail="Execution time limit exceeded.")
-    except SyntaxError as exc:
-        raise HTTPException(status_code=400, detail=f"Syntax error on line {exc.lineno}.")
+        result = await asyncio.to_thread(run_tensorlake_python, payload.code)
+        if result.get("error"):
+            return result
+        return result
+    except TimeoutError as exc:
+        raise HTTPException(status_code=408, detail=str(exc)[:240])
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)[:240])
+        print("Aarohi Tensorlake execution error: " + type(exc).__name__)
+        raise HTTPException(status_code=502, detail="Cloud sandbox could not run this code. Check Tensorlake free-tier availability and backend logs.")
+    finally:
+        _release_code_slot()
+
+
+async def _try_acquire_code_slot() -> bool:
+    try:
+        await asyncio.wait_for(_code_slots.acquire(), timeout=0.05)
+        return True
+    except asyncio.TimeoutError:
+        return False
+
+
+def _release_code_slot() -> None:
+    _code_slots.release()
 
 
 @app.post("/api/chat")
