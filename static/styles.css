@@ -84,3 +84,15 @@ button:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px sol
  .sidebar{width:min(310px,86vw);max-width:86vw}
  .chat-history{max-height:45vh}
 }
+
+/* Chat history management and backup controls */
+.chat-search{width:100%;margin:0 0 8px;padding:10px 11px;border-radius:9px;border:1px solid #303950;background:#111827;color:var(--text);font-size:12px;outline:none}
+.chat-search:focus{border-color:#8176db}
+.chat-history-row{display:flex;align-items:center;gap:4px}
+.chat-history-row .chat-history-item{min-width:0;flex:1}
+.chat-delete{flex:0 0 30px;width:30px;height:30px;border:1px solid transparent;border-radius:8px;background:transparent;color:#8490a6;font-size:19px;line-height:1}
+.chat-delete:hover{background:#3a2028;border-color:#71424b;color:#ffd1d1}
+.chat-empty{padding:8px 10px;color:var(--muted);font-size:11px}
+.backup-actions{display:flex;gap:6px;margin:10px 0 2px}
+.backup-actions button{flex:1;min-width:0;padding:8px 5px;border:1px solid #303950;border-radius:8px;background:#151d2b;color:#cbd3e4;font-size:10px}
+.backup-actions button:hover{border-color:#8176db;background:#1d263a}
