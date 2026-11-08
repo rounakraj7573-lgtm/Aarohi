@@ -23,6 +23,39 @@ let accessCode = localStorage.getItem("aarohi_access_code") || window.prompt("En
 if (accessCode) localStorage.setItem("aarohi_access_code", accessCode);
 let providers = [];
 
+let workspaceId = localStorage.getItem("aarohi_workspace_id") || "";
+if (!/^[A-Za-z0-9_-]{16,80}$/.test(workspaceId)) {
+  workspaceId = (window.crypto?.randomUUID?.() || ("ws_" + Date.now() + Math.random().toString(36).slice(2))).replace(/[^A-Za-z0-9_-]/g, "");
+  localStorage.setItem("aarohi_workspace_id", workspaceId);
+}
+function parseWorkspaceCommand(message) {
+  const m = message.trim();
+  if (/^(list|show)\s+(my\s+)?files$/i.test(m)) return { method: "GET", path: "/api/workspace/files" };
+  let x = m.match(/^read\s+file\s+(.+)$/i);
+  if (x) return { method: "GET", path: "/api/workspace/files/" + encodeURIComponent(x[1].trim()) };
+  x = m.match(/^delete\s+file\s+(.+)$/i);
+  if (x) return { method: "DELETE", path: "/api/workspace/files/" + encodeURIComponent(x[1].trim()) };
+  x = m.match(/^(create|save|write)\s+file\s+([^:]+):\s*([\s\S]*)$/i);
+  if (x) return { method: "PUT", path: "/api/workspace/files", body: { name: x[2].trim(), content: x[3] } };
+  x = m.match(/^create\s+(?:a\s+)?file\s+named\s+([^\s]+)\s+with\s+content\s+([\s\S]*)$/i);
+  if (x) return { method: "PUT", path: "/api/workspace/files", body: { name: x[1].trim(), content: x[2] } };
+  return null;
+}
+async function runWorkspaceCommand(command) {
+  const response = await fetch(API_BASE + command.path, {
+    method: command.method,
+    headers: { "Content-Type": "application/json", "X-Aarohi-Access-Code": accessCode, "X-Aarohi-Workspace-ID": workspaceId },
+    body: command.body ? JSON.stringify(command.body) : undefined
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.detail || "Workspace request failed.");
+  if (command.method === "GET" && Array.isArray(data.files)) {
+    return data.files.length ? "Workspace files:\n" + data.files.map(x => x.name + " (" + x.size + " bytes)").join("\n") : "Workspace is empty.";
+  }
+  if (typeof data.content === "string") return "File: " + data.name + "\n\n" + data.content;
+  return JSON.stringify(data);
+}
+
 function currentSession() { return sessions.find(s => s.id === activeSessionId); }
 function saveSessions() {
   try { localStorage.setItem(CHAT_STORE_KEY, JSON.stringify(sessions.slice(0, 30))); } catch {}
@@ -188,7 +221,7 @@ function chooseRoute(message) {
 async function postJson(path, body) {
   const response = await fetch(API_BASE + path, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Aarohi-Access-Code": accessCode },
+    headers: { "Content-Type": "application/json", "X-Aarohi-Access-Code": accessCode, "X-Aarohi-Workspace-ID": workspaceId },
     body: JSON.stringify(body)
   });
   const data = await response.json().catch(() => ({}));
@@ -217,7 +250,10 @@ async function sendMessage(text) {
   conversation.appendChild(pending);
   try {
     let reply = "";
-    if (route === "agent") {
+    const workspaceCommand = parseWorkspaceCommand(message);
+    if (workspaceCommand) {
+      reply = await runWorkspaceCommand(workspaceCommand);
+    } else if (route === "agent") {
       const data = await postJson("/api/agent", { task: message, provider: providerSelect.value, memory: savedMemory });
       reply = String(data.reply || "").trim();
       if (Array.isArray(data.tools_used) && data.tools_used.length) reply += "\n\nTools used: " + data.tools_used.join(", ");
