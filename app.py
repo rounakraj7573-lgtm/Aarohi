@@ -8,7 +8,7 @@ import re
 import httpx
 import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 from collections import defaultdict, deque
 from typing import Literal
 
@@ -271,10 +271,10 @@ class _PageTextParser(HTMLParser):
         if not self.skip_depth: self.parts.append(value)
 
 
-def fetch_public_website(raw_url: str):
-    parsed = urlparse(raw_url if "://" in raw_url else "https://" + raw_url)
+def _validate_public_http_url(raw_url: str):
+    parsed = urlparse(raw_url)
     if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
-        raise ValueError("Please provide a valid public http(s) website URL.")
+        raise ValueError("Only public http(s) website URLs are allowed.")
     host = parsed.hostname
     if host.lower() == "localhost" or host.endswith(".local"):
         raise ValueError("Local and private websites are not allowed.")
@@ -283,56 +283,91 @@ def fetch_public_website(raw_url: str):
     except Exception:
         raise ValueError("The website domain could not be resolved.")
     if not addresses or any(not ipaddress.ip_address(addr).is_global for addr in addresses):
-        raise ValueError("Only publicly reachable websites can be researched.")
-    url = parsed.geturl()
-    with httpx.Client(timeout=httpx.Timeout(8.0), follow_redirects=False, headers={"User-Agent": "AarohiResearch/1.0"}) as client:
-        with client.stream("GET", url) as response:
-            if response.status_code in (301, 302, 303, 307, 308):
-                raise ValueError("This website redirects; please use its final public URL.")
-            response.raise_for_status()
-            if "text/html" not in response.headers.get("content-type", "").lower():
-                raise ValueError("This URL does not return an HTML webpage.")
-            chunks, total = [], 0
-            for chunk in response.iter_bytes():
-                total += len(chunk)
-                if total > 1_000_000: raise ValueError("The webpage is too large to inspect safely.")
-                chunks.append(chunk)
-            encoding = response.encoding or "utf-8"
+        raise ValueError("Only publicly reachable websites are allowed.")
+    return parsed
+
+
+def fetch_public_website(raw_url: str):
+    current_url = raw_url if "://" in raw_url else "https://" + raw_url
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; AarohiReader/1.0)"}
+    chunks, total, encoding = [], 0, "utf-8"
+    with httpx.Client(timeout=httpx.Timeout(10.0), follow_redirects=False, headers=headers) as client:
+        for hop in range(6):
+            _validate_public_http_url(current_url)
+            with client.stream("GET", current_url) as response:
+                if response.status_code in (301, 302, 303, 307, 308):
+                    location = response.headers.get("location")
+                    if not location or hop == 5:
+                        raise ValueError("The website redirected too many times.")
+                    current_url = urljoin(current_url, location)
+                    continue
+                response.raise_for_status()
+                if "text/html" not in response.headers.get("content-type", "").lower():
+                    raise ValueError("This URL does not return an HTML webpage.")
+                for chunk in response.iter_bytes():
+                    total += len(chunk)
+                    if total > 1_000_000:
+                        raise ValueError("The webpage is too large to inspect safely.")
+                    chunks.append(chunk)
+                encoding = response.encoding or "utf-8"
+                break
+        else:
+            raise ValueError("The website could not be opened.")
     parser = _PageTextParser()
     parser.feed(b"".join(chunks).decode(encoding, errors="replace"))
-    return {"url": url, "title": " ".join(parser.title)[:240], "content": " ".join(parser.parts)[:10000], "characters_read": sum(len(part) for part in parser.parts)}
+    content = " ".join(parser.parts)[:10000]
+    if len(content) < 80:
+        raise ValueError("The webpage did not provide enough readable text.")
+    return {"url": current_url, "title": " ".join(parser.title)[:240], "content": content, "characters_read": len(content)}
 
 
 def run_web_search(query: str):
-    # Search adapters are tried in order; RSS fallbacks need no paid API key.
+    # All adapters below are public/no-key services; no paid search API is required.
     failures = []
     try:
         from ddgs import DDGS
-        for backend in ("auto", "bing", "duckduckgo"):
-            try:
-                results = list(DDGS(timeout=5).text(query, backend=backend, max_results=5))
-                if results:
-                    return results
-            except Exception as exc:
-                failures.append("ddgs-" + backend + ":" + type(exc).__name__)
+        try:
+            results = list(DDGS(timeout=8).text(query, max_results=5))
+            if results:
+                return results
+        except Exception as exc:
+            failures.append("ddgs:" + type(exc).__name__)
     except Exception as exc:
-        failures.append("ddgs:" + type(exc).__name__)
+        failures.append("ddgs-import:" + type(exc).__name__)
 
-    # Bing RSS is a lightweight public search fallback.
+    # GDELT's public DOC endpoint returns article URLs and metadata without an API key.
+    try:
+        response = httpx.get(
+            "https://api.gdeltproject.org/api/v2/doc/doc",
+            params={"query": query, "mode": "ArtList", "format": "json", "maxrecords": 5, "sort": "HybridRel"},
+            timeout=httpx.Timeout(12.0), follow_redirects=True,
+            headers={"User-Agent": "AarohiResearch/1.0"},
+        )
+        response.raise_for_status()
+        data = response.json()
+        items = []
+        for item in data.get("articles", [])[:5]:
+            title = str(item.get("title") or "").strip()
+            url = str(item.get("url") or "").strip()
+            snippet = str(item.get("seendate") or "") + ((" · " + str(item.get("domain") or "")) if item.get("domain") else "")
+            if title and url.startswith(("https://", "http://")):
+                items.append({"title": title[:240], "href": url, "body": snippet[:700]})
+        if items:
+            return items
+    except Exception as exc:
+        failures.append("gdelt:" + type(exc).__name__)
+
+    # Bing RSS is the next no-key fallback; Google News is last because it may rate-limit automated requests.
     feeds = [
-        ("https://news.google.com/rss/search", {"q": query, "hl": "en-IN", "gl": "IN", "ceid": "IN:en"}),
         ("https://www.bing.com/search", {"format": "rss", "q": query}),
+        ("https://news.google.com/rss/search", {"q": query, "hl": "en-IN", "gl": "IN", "ceid": "IN:en"}),
     ]
-    # NASA's own release feed is a no-key fallback for Artemis-specific queries.
     if re.search(r"\bNASA\b|\bArtemis\b", query, re.I):
         feeds.append(("https://www.nasa.gov/news-release/feed/", {}))
     for feed_url, params in feeds:
         try:
-            response = httpx.get(
-                feed_url, params=params, timeout=httpx.Timeout(6.0),
-                follow_redirects=True,
-                headers={"User-Agent": "Mozilla/5.0 (compatible; AarohiResearch/1.0)"}
-            )
+            response = httpx.get(feed_url, params=params, timeout=httpx.Timeout(8.0),
+                                 follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (compatible; AarohiResearch/1.0)"})
             response.raise_for_status()
             root = ET.fromstring(response.text)
             items = []
@@ -557,7 +592,7 @@ def run_tensorlake_python(source: str):
     # The key stays in the Aarohi backend. It is never passed into the guest VM.
     from tensorlake.sandbox import SandboxClient
 
-    client = SandboxClient.for_cloud(api_key=api_key, request_timeout=45)
+    client = SandboxClient.for_cloud(api_key=api_key)
     try:
         # One small, offline microVM per run. Context exit terminates it.
         with client.create_and_connect(
@@ -600,7 +635,7 @@ async def run_code(payload: CodeRunRequest, request: Request):
     except TimeoutError as exc:
         raise HTTPException(status_code=408, detail=str(exc)[:240])
     except Exception as exc:
-        print("Aarohi Tensorlake execution error: " + type(exc).__name__)
+        print("Aarohi Tensorlake execution error: " + type(exc).__name__ + ": " + str(exc)[:300])
         raise HTTPException(status_code=502, detail="Cloud sandbox could not run this code. Check Tensorlake free-tier availability and backend logs.")
     finally:
         _release_code_slot()
