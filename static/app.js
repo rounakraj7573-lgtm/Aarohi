@@ -279,7 +279,7 @@ function extractPython(message) {
 }
 function handleLocalCommand(message) {
   const text = message.trim();
-  let match = text.match(/^(?:please\\s+)?remember(?:\\s+that)?\\s+(.+)$/i);
+  let match = text.match(/^(?:please\s+)?remember(?:\s+that)?\s+(.+)$/i);
   if (match) {
     const value = match[1].trim().slice(0, 4000);
     if (!value || /password|passcode|api[ _-]?key|secret|token/i.test(value)) {
@@ -290,22 +290,22 @@ function handleLocalCommand(message) {
     refreshMemoryStatus();
     return "Saved to Aarohi memory on this device. I'll use it in future chats in this browser.";
   }
-  if (/^(?:what do you remember|show my memory|what is my saved memory|what language do i prefer)\\??$/i.test(text)) {
+  if (/^(?:what do you remember|show my memory|what is my saved memory|what language do i prefer)\??$/i.test(text)) {
     return savedMemory ? "Your saved memory: " + savedMemory : "No saved memory yet. You can say: Remember that I prefer simple Hinglish.";
   }
-  if (/^(?:new chat|start a new chat)\\.?$/i.test(text)) {
+  if (/^(?:new chat|start a new chat)\.?$/i.test(text)) {
     newChat();
     return "__LOCAL_NEW_CHAT__";
   }
-  if (/^(?:show|open) (?:my )?(?:chat )?history\\.?$/i.test(text)) {
+  if (/^(?:show|open) (?:my )?(?:chat )?history\.?$/i.test(text)) {
     sidebar?.classList.add("open");
     return "Your chat history is open in the sidebar.";
   }
-  if (/^(?:export|download) (?:my )?(?:aarohi )?backup\\.?$/i.test(text)) {
+  if (/^(?:export|download) (?:my )?(?:aarohi )?backup\.?$/i.test(text)) {
     exportAarohiBackup();
     return "Your Aarohi backup export has started. Check your device's Downloads.";
   }
-  if (/^(?:import|restore) (?:my )?(?:aarohi )?backup\\.?$/i.test(text)) {
+  if (/^(?:import|restore) (?:my )?(?:aarohi )?backup\.?$/i.test(text)) {
     document.querySelector("#backup-file")?.click();
     return "Choose your Aarohi backup JSON file to restore it.";
   }
