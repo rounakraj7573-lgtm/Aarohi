@@ -277,12 +277,47 @@ function extractPython(message) {
   if (fenced) code = fenced[1];
   return code.trim();
 }
+function handleLocalCommand(message) {
+  const text = message.trim();
+  let match = text.match(/^(?:please\\s+)?remember(?:\\s+that)?\\s+(.+)$/i);
+  if (match) {
+    const value = match[1].trim().slice(0, 4000);
+    if (!value || /password|passcode|api[ _-]?key|secret|token/i.test(value)) {
+      return "I can't save passwords, access codes, API keys, or other secrets. Please save only a non-sensitive preference.";
+    }
+    savedMemory = value;
+    localStorage.setItem("aarohi_saved_memory", savedMemory);
+    refreshMemoryStatus();
+    return "Saved to Aarohi memory on this device. I'll use it in future chats in this browser.";
+  }
+  if (/^(?:what do you remember|show my memory|what is my saved memory|what language do i prefer)\\??$/i.test(text)) {
+    return savedMemory ? "Your saved memory: " + savedMemory : "No saved memory yet. You can say: Remember that I prefer simple Hinglish.";
+  }
+  if (/^(?:new chat|start a new chat)\\.?$/i.test(text)) {
+    newChat();
+    return "__LOCAL_NEW_CHAT__";
+  }
+  if (/^(?:show|open) (?:my )?(?:chat )?history\\.?$/i.test(text)) {
+    sidebar?.classList.add("open");
+    return "Your chat history is open in the sidebar.";
+  }
+  if (/^(?:export|download) (?:my )?(?:aarohi )?backup\\.?$/i.test(text)) {
+    exportAarohiBackup();
+    return "Your Aarohi backup export has started. Check your device's Downloads.";
+  }
+  if (/^(?:import|restore) (?:my )?(?:aarohi )?backup\\.?$/i.test(text)) {
+    document.querySelector("#backup-file")?.click();
+    return "Choose your Aarohi backup JSON file to restore it.";
+  }
+  return null;
+}
+
 function chooseRoute(message) {
   const text = message.trim();
   const hasUrl = /https?:\/\/|www\./i.test(text);
   const explicitPython = /^\s*(?:please\s+)?(?:run|execute)\s+(?:the\s+)?(?:python|phyton)\b|^\s*```python/i.test(text);
   const codeLike = /(^|\n)\s*(print\s*\(|def\s+\w+|class\s+\w+|for\s+\w+\s+in\s|while\s|import\s+\w+|from\s+\w+\s+import|[A-Za-z_]\w*\s*=)/m.test(text);
-  const webIntent = /\b(search|browse|website|web|internet|online|latest|today|current|recent|news|research|source|sources|compare online|look up|find online)\b|खोज|वेबसाइट|ताज़ा|आज की खबर/i.test(text);
+  const webIntent = /\b(search|browse|website|web|internet|online|latest|today|current|recent|news|research|source|sources|compare online|look up|find|information|info|summari[sz]e|NASA|Artemis)\b|खोज|वेबसाइट|ताज़ा|आज की खबर|ढूंढ|खोजो/i.test(text);
   const mathIntent = /\b(calculate|compute|calculator|solve|multiply|divide|add|subtract)\b|[×÷]/i.test(text);
   const actionIntent = /\b(build|create|make|design|plan|develop|analyze|analyse|investigate|execute|automate|fix|debug|deploy|write code|generate)\b/i.test(text);
   if (explicitPython || codeLike) return "code";
@@ -308,6 +343,16 @@ async function postJson(path, body) {
 async function sendMessage(text) {
   const message = text.trim();
   if (!message || send.disabled || !providerSelect.value) return;
+  const localReply = handleLocalCommand(message);
+  if (localReply !== null) {
+    if (localReply !== "__LOCAL_NEW_CHAT__") {
+      addMessage("user", message);
+      addMessage("assistant", localReply);
+    }
+    input.value = "";
+    input.style.height = "auto";
+    return;
+  }
   const session = ensureSession();
   addMessage("user", message);
   input.value = "";
