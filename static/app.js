@@ -301,6 +301,42 @@ function handleLocalCommand(message) {
     sidebar?.classList.add("open");
     return "Your chat history is open in the sidebar.";
   }
+  match = text.match(/^search chats? for (.+)$/i);
+  if (match) {
+    const search = document.querySelector("#chat-search");
+    sidebar?.classList.add("open");
+    if (search) search.value = match[1].trim().slice(0, 100);
+    renderChatList();
+    const count = sessions.filter(item => String(item.title || "").toLowerCase().includes((match[1] || "").trim().toLowerCase())).length;
+    return count ? "Found " + count + " matching chat(s) in the sidebar." : "No chats matched that search.";
+  }
+  if (/^(?:clear|reset) chat search\.?$/i.test(text)) {
+    const search = document.querySelector("#chat-search");
+    if (search) search.value = "";
+    renderChatList();
+    return "Chat search cleared.";
+  }
+  match = text.match(/^delete chat (?:named )?(.+)$/i);
+  if (match) {
+    const target = match[1].trim().toLowerCase();
+    const found = sessions.find(item => String(item.title || "").trim().toLowerCase() === target);
+    if (!found) return "I couldn't find a chat with that exact title. Open the sidebar to choose a chat and use its × delete button.";
+    if (!window.confirm("Delete chat '" + found.title + "' from this device?")) return "Chat deletion cancelled.";
+    sessions = sessions.filter(item => item.id !== found.id);
+    if (activeSessionId === found.id) {
+      activeSessionId = "";
+      newChat();
+    } else {
+      saveSessions();
+      renderChatList();
+    }
+    return "Deleted chat '" + found.title + "' from this device.";
+  }
+  if (/^(?:check|test) (?:the )?(?:mobile )?(?:ui|sidebar|message box)\.?$/i.test(text)) {
+    sidebar?.classList.add("open");
+    input.focus();
+    return "The sidebar is open and the message box is focused. On mobile, use ☰ to open the sidebar; use Search chats to filter history, × beside a chat to delete it, and the bottom message box to send a message.";
+  }
   if (/^(?:export|download) (?:my )?(?:aarohi )?backup\.?$/i.test(text)) {
     exportAarohiBackup();
     return "Your Aarohi backup export has started. Check your device's Downloads.";
