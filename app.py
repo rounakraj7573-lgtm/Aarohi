@@ -444,10 +444,14 @@ async def run_agent(payload: AgentRequest, request: Request):
             page_fetched = True
         except Exception as exc:
             tool_results.append({"tool": "website_reader", "error": str(exc)[:220]})
+    # General-purpose research intent: this applies to any subject, not a
+    # single organization, science topic, or news category.
     needs_search = bool(re.search(
-        r"\b(latest|today|current|recent|news|search|internet|online|website|browse|research|look\s*up|find|search\s+for|sources?|summari[sz]e|information|info|updates?|abhi|aaj|taaza|dhundo|khojo)\b",
+        r"\b(latest|today|current|recent|news|search|internet|online|website|browse|research|look\s*up|find|search\s+for|sources?|summari[sz]e|information|info|updates?|"
+        r"explain|tell\s+me\s+about|who\s+is|what\s+is|what\s+are|how\s+does|how\s+do|compare|facts?\s+about|details?\s+about|"
+        r"abhi|aaj|taaza|dhundo|khojo|ke\s+baare\s+mein|ke\s+bare\s+mein|kya\s+hai|kaun\s+hai|samjhao)\b",
         task, re.I
-    )) or bool(re.search(r"\bNASA\b.*\bArtemis\b|\bArtemis\b.*\bNASA\b", task, re.I))
+    ))
     if needs_search:
         try:
             found = await asyncio.wait_for(asyncio.to_thread(run_web_search, task), timeout=30)
