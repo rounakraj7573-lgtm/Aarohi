@@ -53,6 +53,8 @@ async function runWorkspaceCommand(command) {
     return data.files.length ? "Workspace files:\n" + data.files.map(x => x.name + " (" + x.size + " bytes)").join("\n") : "Workspace is empty.";
   }
   if (typeof data.content === "string") return "File: " + data.name + "\n\n" + data.content;
+  if (data.saved === true) return "Saved " + data.name + " (" + data.size + " bytes). Workspace files are temporary and may be cleared when the server restarts.";
+  if (data.deleted === true) return "Deleted " + data.name + " from the workspace.";
   return JSON.stringify(data);
 }
 
