@@ -7,11 +7,12 @@ Aarohi is a cloud-first AI assistant. The Android phone/browser runs the interfa
 - **Frontend:** static HTML/CSS/JavaScript hosted on Render.
 - **Backend:** FastAPI + LiteLLM on Render.
 - **AI providers:** provider registry supports Gemini, Groq, OpenAI, OpenRouter, Cohere, Together AI (Llama hosting), Anthropic, DeepSeek, Mistral and custom OpenAI-compatible endpoints. Only IDs in `ALLOWED_PROVIDERS` with a configured API key and model ID appear in the app.
-- **Web research:** DDGS search with public RSS fallbacks; results may be incomplete or unavailable.
+- **Web research:** DDGS, GDELT, Bing/Google News RSS, plus a Wikipedia fallback for non-time-sensitive background research; live news may still be unavailable if public sources rate-limit or block requests.
 - **Agent tools:** calculator, public webpage reader and web search. Website content is untrusted input and is not treated as instructions.
-- **Python:** `/api/code/run` uses Tensorlake's isolated cloud sandbox when `TENSORLAKE_API_KEY` is configured. Current settings request 1 vCPU, 1 GB RAM, a 60-second sandbox lifetime, a 20-second process timeout, no guest internet access, one concurrent run, and context-managed cleanup. Availability and exact free-tier limits depend on Tensorlake's current account plan.
+- **Python:** `/api/code/run` uses Tensorlake's isolated cloud sandbox when `TENSORLAKE_API_KEY` is configured. It requests no guest internet access or public ports, limits each Python process to 20 seconds, and allows one active run at a time in Aarohi. The Tensorlake Free plan currently lists one concurrent sandbox, 1 vCPU, 1 GB RAM, and up to 2 hours per sandbox session; availability and limits can change.
 - **Workspace files:** small, temporary in-memory files; max 10 files, 16 KB per file, 64 KB total per workspace, 500 workspaces, and 24-hour idle expiry. Files can disappear on restart or eviction.
-- **Chat history and saved memory:** stored in the current browser/device. Export/import JSON backup is available; there is no automatic cloud sync.
+- **Chat history and saved memory:** stored in the current browser/device. Export creates a readable HTML archive that also contains restorable backup data; import accepts the new HTML archive and older JSON backups. There is no automatic cloud sync.
+- **Workspace downloads:** use `download file <name>` to download a text workspace file with a matching filename extension and MIME type.
 
 ## Server environment
 
