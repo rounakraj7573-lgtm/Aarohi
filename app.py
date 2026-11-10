@@ -341,7 +341,7 @@ def fetch_wikipedia_article(raw_url: str):
     if not pages or pages[0].get("missing") is not None:
         raise ValueError("Wikipedia could not find that article.")
     page = pages[0]
-    content = re.sub(r"\\s+", " ", str(page.get("extract") or "")).strip()[:10000]
+    content = re.sub(r"\s+", " ", str(page.get("extract") or "")).strip()[:10000]
     if len(content) < 80:
         raise ValueError("Wikipedia returned too little readable text.")
     return {"url": raw_url, "title": str(page.get("title") or title)[:240],
@@ -415,7 +415,7 @@ def run_web_search(query: str):
     # Encyclopedic fallback for non-time-sensitive research. This is deliberately
     # skipped for breaking/current/news queries so old background material is not
     # presented as live reporting.
-    time_sensitive = bool(re.search(r"\\b(latest|today|current|recent|news|updates?|this week|this month)\\b", query, re.I))
+    time_sensitive = bool(re.search(r"\b(latest|today|current|recent|news|updates?|this week|this month)\b", query, re.I))
     if not time_sensitive:
         try:
             response = httpx.get(
@@ -431,7 +431,7 @@ def run_web_search(query: str):
                 title = str(item.get("title") or "").strip()
                 page_id = item.get("pageid")
                 snippet = re.sub(r"<[^>]+>", " ", str(item.get("snippet") or ""))
-                snippet = re.sub(r"\\s+", " ", snippet).strip()
+                snippet = re.sub(r"\s+", " ", snippet).strip()
                 if title and page_id:
                     items.append({"title": title[:240],
                                   "href": "https://en.wikipedia.org/?curid=" + str(page_id),
