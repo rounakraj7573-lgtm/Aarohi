@@ -297,7 +297,9 @@ async function checkHealth() {
     if (!response.ok) throw new Error("offline");
     const data = await response.json();
     const count = Number(data.configured_provider_count || 0);
-    statusLabel.textContent = count ? "Online · " + count + " model provider(s)" : "Online · setup needed";
+    const pythonReady = Boolean(data.python_runner_configured);
+    statusLabel.textContent = (count ? "Online · " + count + " model(s)" : "Online · model setup needed") +
+      (pythonReady ? " · Cloud Python ready" : " · Python setup needed");
     statusDot.classList.add("ok");
   } catch {
     statusLabel.textContent = "Server status unavailable";
