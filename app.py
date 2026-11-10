@@ -8,7 +8,7 @@ import re
 import httpx
 import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urlparse, urljoin, unquote
 from collections import defaultdict, deque
 from typing import Literal
 
@@ -321,6 +321,32 @@ def fetch_public_website(raw_url: str):
     return {"url": current_url, "title": " ".join(parser.title)[:240], "content": content, "characters_read": len(content)}
 
 
+def fetch_wikipedia_article(raw_url: str):
+    parsed = urlparse(raw_url)
+    if parsed.hostname not in ("en.wikipedia.org", "www.wikipedia.org", "m.wikipedia.org") or "/wiki/" not in parsed.path:
+        raise ValueError("This is not a supported Wikipedia article URL.")
+    title = unquote(parsed.path.split("/wiki/", 1)[1]).split("#", 1)[0]
+    if not title:
+        raise ValueError("Wikipedia article title is missing.")
+    response = httpx.get(
+        "https://en.wikipedia.org/w/api.php",
+        params={"action": "query", "prop": "extracts", "explaintext": 1,
+                "exsectionformat": "plain", "titles": title, "redirects": 1,
+                "format": "json", "formatversion": 2},
+        timeout=httpx.Timeout(15.0), follow_redirects=True,
+        headers={"User-Agent": "AarohiAI/1.0 (public webpage reader)"},
+    )
+    response.raise_for_status()
+    pages = response.json().get("query", {}).get("pages", [])
+    if not pages or pages[0].get("missing") is not None:
+        raise ValueError("Wikipedia could not find that article.")
+    page = pages[0]
+    content = re.sub(r"\\s+", " ", str(page.get("extract") or "")).strip()[:10000]
+    if len(content) < 80:
+        raise ValueError("Wikipedia returned too little readable text.")
+    return {"url": raw_url, "title": str(page.get("title") or title)[:240],
+            "content": content, "characters_read": len(content), "reader": "Wikipedia text API"}
+
 def run_web_search(query: str):
     # All adapters below are public/no-key services; no paid search API is required.
     failures = []
@@ -386,6 +412,34 @@ def run_web_search(query: str):
                 return items
         except Exception as exc:
             failures.append(feed_url.split("/")[2] + ":" + type(exc).__name__)
+    # Encyclopedic fallback for non-time-sensitive research. This is deliberately
+    # skipped for breaking/current/news queries so old background material is not
+    # presented as live reporting.
+    time_sensitive = bool(re.search(r"\\b(latest|today|current|recent|news|updates?|this week|this month)\\b", query, re.I))
+    if not time_sensitive:
+        try:
+            response = httpx.get(
+                "https://en.wikipedia.org/w/api.php",
+                params={"action": "query", "list": "search", "srsearch": query,
+                        "srlimit": 5, "format": "json"},
+                timeout=httpx.Timeout(12.0), follow_redirects=True,
+                headers={"User-Agent": "AarohiAI/1.0 (research search)"},
+            )
+            response.raise_for_status()
+            items = []
+            for item in response.json().get("query", {}).get("search", [])[:5]:
+                title = str(item.get("title") or "").strip()
+                page_id = item.get("pageid")
+                snippet = re.sub(r"<[^>]+>", " ", str(item.get("snippet") or ""))
+                snippet = re.sub(r"\\s+", " ", snippet).strip()
+                if title and page_id:
+                    items.append({"title": title[:240],
+                                  "href": "https://en.wikipedia.org/?curid=" + str(page_id),
+                                  "body": snippet[:700]})
+            if items:
+                return items
+        except Exception as exc:
+            failures.append("wikipedia:" + type(exc).__name__)
     print("Aarohi web search failed across sources: " + ", ".join(failures or ["no results"]))
     return []
 
@@ -478,7 +532,17 @@ async def run_agent(payload: AgentRequest, request: Request):
             tool_results.append({"tool": "website_reader", **page})
             page_fetched = True
         except Exception as exc:
-            tool_results.append({"tool": "website_reader", "error": str(exc)[:220]})
+            # Wikipedia's text API is a reliable fallback when its public HTML page
+            # blocks or redirects automated readers.
+            try:
+                page = await asyncio.wait_for(
+                    asyncio.to_thread(fetch_wikipedia_article, url_match.group(0).rstrip(".,)")),
+                    timeout=18,
+                )
+                tool_results.append({"tool": "website_reader", **page})
+                page_fetched = True
+            except Exception as fallback_exc:
+                tool_results.append({"tool": "website_reader", "error": str(fallback_exc)[:220]})
     # General-purpose research intent: this applies to any subject, not a
     # single organization, science topic, or news category.
     needs_search = bool(re.search(
@@ -594,12 +658,11 @@ def run_tensorlake_python(source: str):
 
     client = SandboxClient.for_cloud(api_key=api_key)
     try:
-        # One small, offline microVM per run. Context exit terminates it.
+        # Use Tensorlake's managed default Python sandbox (1 vCPU / 1 GiB
+        # baseline), with no guest network or public ports. A short process
+        # limit keeps the free-tier service responsive.
         with client.create_and_connect(
-            cpus=1.0,
-            memory_mb=1024,
             timeout_secs=60,
-            request_timeout=45,
             cancel_on_timeout=True,
             allow_internet_access=False,
             allow_unauthenticated_access=False,
