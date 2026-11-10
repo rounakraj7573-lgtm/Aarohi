@@ -79,7 +79,7 @@ function saveSessions() {
 }
 function exportAarohiBackup() {
   const payload = { app: "Aarohi AI", version: 1, exportedAt: new Date().toISOString(), memory: savedMemory, sessions };
-  const escapeHtml = value => String(value ?? "").replace(/[&<>\"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\\\"": "&quot;", "'": "&#39;" }[char]));
+  const escapeHtml = value => String(value ?? "").replace(/[&<>\"\']/g, char => { if (char === "&") return "&amp;"; if (char === "<") return "&lt;"; if (char === ">") return "&gt;"; if (char === "\"") return "&quot;"; return "&#39;"; });
   const readableChats = sessions.map(session => {
     const messages = (Array.isArray(session.messages) ? session.messages : []).map(message =>
       '<article class="message"><b>' + escapeHtml(message.role || "message") + '</b><pre>' + escapeHtml(message.content || "") + '</pre></article>'
