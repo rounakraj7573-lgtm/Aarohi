@@ -33,6 +33,8 @@ function parseWorkspaceCommand(message) {
   if (/^(list|show)\s+(my\s+)?files$/i.test(m)) return { method: "GET", path: "/api/workspace/files" };
   let x = m.match(/^read\s+file\s+(.+)$/i);
   if (x) return { method: "GET", path: "/api/workspace/files/" + encodeURIComponent(x[1].trim()) };
+  x = m.match(/^download\s+file\s+(.+)$/i);
+  if (x) return { method: "GET", path: "/api/workspace/files/" + encodeURIComponent(x[1].trim()), download: true };
   x = m.match(/^delete\s+file\s+(.+)$/i);
   if (x) return { method: "DELETE", path: "/api/workspace/files/" + encodeURIComponent(x[1].trim()) };
   x = m.match(/^(create|save|write)\s+file\s+([^:]+):\s*([\s\S]*)$/i);
@@ -52,6 +54,19 @@ async function runWorkspaceCommand(command) {
   if (command.method === "GET" && Array.isArray(data.files)) {
     return data.files.length ? "Workspace files:\n" + data.files.map(x => x.name + " (" + x.size + " bytes)").join("\n") : "Workspace is empty.";
   }
+  if (command.download && typeof data.content === "string") {
+    const extension = String(data.name || "").split(".").pop().toLowerCase();
+    const mime = ({ txt: "text/plain;charset=utf-8", py: "text/x-python;charset=utf-8", js: "text/javascript;charset=utf-8", html: "text/html;charset=utf-8", css: "text/css;charset=utf-8", json: "application/json;charset=utf-8", md: "text/markdown;charset=utf-8", csv: "text/csv;charset=utf-8", xml: "application/xml;charset=utf-8" })[extension] || "application/octet-stream";
+    const url = URL.createObjectURL(new Blob([data.content], { type: mime }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = data.name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 15000);
+    return "Downloaded " + data.name + " (" + mime.split(";")[0] + ").";
+  }
   if (typeof data.content === "string") return "File: " + data.name + "\n\n" + data.content;
   if (data.saved === true) return "Saved " + data.name + " (" + data.size + " bytes). Workspace files are temporary and may be cleared when the server restarts.";
   if (data.deleted === true) return "Deleted " + data.name + " from the workspace.";
@@ -63,24 +78,42 @@ function saveSessions() {
   try { localStorage.setItem(CHAT_STORE_KEY, JSON.stringify(sessions.slice(0, 30))); } catch {}
 }
 function exportAarohiBackup() {
-  const payload = {
-    app: "Aarohi AI",
-    version: 1,
-    exportedAt: new Date().toISOString(),
-    memory: savedMemory,
-    sessions
-  };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const payload = { app: "Aarohi AI", version: 1, exportedAt: new Date().toISOString(), memory: savedMemory, sessions };
+  const escapeHtml = value => String(value ?? "").replace(/[&<>\"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\\\"": "&quot;", "'": "&#39;" }[char]));
+  const readableChats = sessions.map(session => {
+    const messages = (Array.isArray(session.messages) ? session.messages : []).map(message =>
+      '<article class="message"><b>' + escapeHtml(message.role || "message") + '</b><pre>' + escapeHtml(message.content || "") + '</pre></article>'
+    ).join("");
+    return '<section><h2>' + escapeHtml(session.title || "Chat") + '</h2>' + (messages || '<p>No messages in this chat.</p>') + '</section>';
+  }).join("");
+  // Keep the restore data inside the readable HTML file; escape script-closing characters.
+  const embedded = JSON.stringify(payload).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026");
+  const html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Aarohi Backup</title>' +
+    '<style>body{font:16px/1.6 system-ui,sans-serif;max-width:850px;margin:32px auto;padding:0 18px;color:#202638;background:#f6f7fb}h1{margin-bottom:4px}small,.muted{color:#68738a}section{background:white;border:1px solid #e0e4ed;border-radius:14px;padding:18px;margin:18px 0}h2{font-size:18px;margin:0 0 12px}.message{border-top:1px solid #edf0f5;padding:12px 0}.message b{text-transform:capitalize;color:#6256ad}.message pre{white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.6 system-ui,sans-serif;margin:6px 0 0}</style></head><body>' +
+    '<h1>Aarohi conversation backup</h1><p class="muted">Exported ' + escapeHtml(payload.exportedAt) + '</p><section><h2>Saved memory</h2><p>' + escapeHtml(savedMemory || "No saved memory") + '</p></section>' +
+    (readableChats || '<section>No saved chats.</section>') +
+    '<script type="application/json" id="aarohi-backup-data">' + embedded + '</script></body></html>';
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "aarohi-backup.json";
+  link.download = "aarohi-backup.html";
+  document.body.appendChild(link);
   link.click();
-  URL.revokeObjectURL(url);
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 15000);
 }
 async function importAarohiBackup(file) {
   if (!file || file.size > 2_000_000) throw new Error("Backup file is too large (2 MB maximum).");
-  const parsed = JSON.parse(await file.text());
+  const raw = await file.text();
+  let parsed;
+  try { parsed = JSON.parse(raw); }
+  catch {
+    const doc = new DOMParser().parseFromString(raw, "text/html");
+    const embedded = doc.getElementById("aarohi-backup-data");
+    if (!embedded) throw new Error("This is not a valid Aarohi backup file.");
+    parsed = JSON.parse(embedded.textContent || "{}");
+  }
   if (!parsed || parsed.app !== "Aarohi AI" || !Array.isArray(parsed.sessions)) throw new Error("This is not a valid Aarohi backup.");
   const imported = parsed.sessions.filter(item => item && typeof item.id === "string" && Array.isArray(item.messages))
     .slice(0, 30).map(item => ({
