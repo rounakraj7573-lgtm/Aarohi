@@ -241,7 +241,11 @@ async def list_providers(request: Request):
 @app.get("/api/health")
 async def health():
     providers = configured_providers()
-    return {"status": "ok", "app": "Aarohi AI", "model_configured": bool(providers), "configured_provider_count": len(providers)}
+    return {
+        "status": "ok", "app": "Aarohi AI",
+        "model_configured": bool(providers), "configured_provider_count": len(providers),
+        "python_runner_configured": bool(os.getenv("TENSORLAKE_API_KEY", "").strip()),
+    }
 
 
 
@@ -657,31 +661,26 @@ def run_tensorlake_python(source: str):
     from tensorlake.sandbox import SandboxClient
 
     client = SandboxClient.for_cloud(api_key=api_key)
-    try:
-        # Use Tensorlake's managed default Python sandbox (1 vCPU / 1 GiB
-        # baseline), with no guest network or public ports. A short process
-        # limit keeps the free-tier service responsive.
-        with client.create_and_connect(
-            timeout_secs=60,
-            cancel_on_timeout=True,
-            allow_internet_access=False,
-            allow_unauthenticated_access=False,
-            exposed_ports=[],
-        ) as sandbox:
-            result = sandbox.run("python3", ["-c", source], timeout=20)
-            stdout = (result.stdout or "")[:4000]
-            stderr = (result.stderr or "")[:2000]
-            if result.timed_out:
-                raise TimeoutError("Python execution exceeded the 20-second limit.")
-            if result.exit_code != 0:
-                detail = stderr.strip() or f"Python exited with code {result.exit_code}."
-                return {"output": stdout, "error": detail[:2000], "exit_code": result.exit_code,
-                        "execution": "Tensorlake isolated cloud sandbox"}
-            return {"output": stdout or "Code ran successfully (no output).",
-                    "stderr": stderr, "exit_code": 0,
+    # Keep to the documented SDK surface. The sandbox context manager
+    # terminates the isolated VM automatically; the client itself does not
+    # need a close() call after each request.
+    with client.create_and_connect(
+        allow_internet_access=False,
+        allow_unauthenticated_access=False,
+        exposed_ports=[],
+    ) as sandbox:
+        result = sandbox.run("python3", ["-c", source], timeout=20)
+        stdout = (result.stdout or "")[:4000]
+        stderr = (result.stderr or "")[:2000]
+        if result.timed_out:
+            raise TimeoutError("Python execution exceeded the 20-second limit.")
+        if result.exit_code != 0:
+            detail = stderr.strip() or f"Python exited with code {result.exit_code}."
+            return {"output": stdout, "error": detail[:2000], "exit_code": result.exit_code,
                     "execution": "Tensorlake isolated cloud sandbox"}
-    finally:
-        client.close()
+        return {"output": stdout or "Code ran successfully (no output).",
+                "stderr": stderr, "exit_code": 0,
+                "execution": "Tensorlake isolated cloud sandbox"}
 
 
 @app.post("/api/code/run")
