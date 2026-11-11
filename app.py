@@ -374,7 +374,7 @@ def _search_terms(query: str):
     ignored = {"latest", "today", "current", "recent", "news", "search", "summarize",
                "summary", "results", "about", "program", "please", "find", "give",
                "me", "the", "and", "for", "with", "what", "are", "some", "important",
-               "updates", "update", "information", "tell", "technology"}
+               "updates", "update", "information", "tell", "three", "important"}
     terms = [word.lower() for word in re.findall(r"[A-Za-z0-9]+", query) if len(word) > 2]
     return [word for word in terms if word not in ignored]
 
@@ -392,7 +392,9 @@ def _valid_search_item(item, query):
     haystack = (title + " " + str(item.get("body") or item.get("snippet") or "") + " " + host).lower()
     # Keep results tied to the topic; short broad queries can match on any one meaningful term.
     meaningful = [term for term in terms if term not in {"nasa", "artemis"}]
-    if meaningful and not any(term in haystack for term in meaningful):
+    aliases = {"technology": ("technology", "tech"), "tech": ("tech", "technology")}
+    matched = any(any(alias in haystack for alias in aliases.get(term, (term,))) for term in meaningful)
+    if meaningful and not matched:
         if not ({"nasa", "artemis"} <= set(terms) and ("nasa.gov" in host or "artemis" in haystack)):
             return False
     return True
