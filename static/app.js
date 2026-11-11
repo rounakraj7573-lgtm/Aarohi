@@ -41,6 +41,11 @@ function parseWorkspaceCommand(message) {
   if (x) return { method: "PUT", path: "/api/workspace/files", body: { name: x[2].trim(), content: x[3] } };
   x = m.match(/^create\s+(?:a\s+)?file\s+named\s+([^\s]+)\s+with\s+content\s+([\s\S]*)$/i);
   if (x) return { method: "PUT", path: "/api/workspace/files", body: { name: x[1].trim(), content: x[2] } };
+  // Natural-language version used in the guided workspace test.
+  let natural = m.match(/^create\s+(?:a\s+)?file\s+named\s+(.+?)\s+and\s+save\s+the\s+text\s+([\s\S]+?)\s+inside\s+it[.!]?$/i);
+  if (natural) return { method: "PUT", path: "/api/workspace/files", body: { name: natural[1].trim(), content: natural[2].trim() } };
+  natural = m.match(/^save\s+the\s+text\s+([\s\S]+?)\s+in(?:to)?\s+(?:a\s+)?file\s+named\s+(.+?)[.!]?$/i);
+  if (natural) return { method: "PUT", path: "/api/workspace/files", body: { name: natural[2].trim(), content: natural[1].trim() } };
   return null;
 }
 async function runWorkspaceCommand(command) {
