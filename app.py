@@ -332,119 +332,165 @@ def fetch_wikipedia_article(raw_url: str):
     title = unquote(parsed.path.split("/wiki/", 1)[1]).split("#", 1)[0]
     if not title:
         raise ValueError("Wikipedia article title is missing.")
-    response = httpx.get(
-        "https://en.wikipedia.org/w/api.php",
-        params={"action": "query", "prop": "extracts", "explaintext": 1,
-                "exsectionformat": "plain", "titles": title, "redirects": 1,
-                "format": "json", "formatversion": 2},
-        timeout=httpx.Timeout(15.0), follow_redirects=True,
-        headers={"User-Agent": "AarohiAI/1.0 (public webpage reader)"},
-    )
-    response.raise_for_status()
-    pages = response.json().get("query", {}).get("pages", [])
-    if not pages or pages[0].get("missing") is not None:
-        raise ValueError("Wikipedia could not find that article.")
-    page = pages[0]
-    content = re.sub(r"\s+", " ", str(page.get("extract") or "")).strip()[:10000]
-    if len(content) < 80:
-        raise ValueError("Wikipedia returned too little readable text.")
-    return {"url": raw_url, "title": str(page.get("title") or title)[:240],
-            "content": content, "characters_read": len(content), "reader": "Wikipedia text API"}
+    headers = {"User-Agent": "AarohiAI/1.0 (public webpage reader; contact: support@example.invalid)"}
+    failures = []
+    # Wikimedia REST summary endpoint is often available even when the HTML page is blocked.
+    try:
+        rest_url = "https://en.wikipedia.org/api/rest_v1/page/summary/" + __import__("urllib.parse", fromlist=["quote"]).quote(title, safe="")
+        response = httpx.get(rest_url, timeout=httpx.Timeout(12.0), follow_redirects=True, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        extract = re.sub(r"\s+", " ", str(data.get("extract") or "")).strip()
+        if len(extract) >= 80:
+            return {"url": raw_url, "title": str(data.get("title") or title)[:240],
+                    "content": extract[:10000], "characters_read": len(extract),
+                    "reader": "Wikipedia REST API"}
+    except Exception as exc:
+        failures.append(type(exc).__name__)
+    # Full plaintext extract fallback.
+    try:
+        response = httpx.get(
+            "https://en.wikipedia.org/w/api.php",
+            params={"action": "query", "prop": "extracts", "explaintext": 1,
+                    "exsectionformat": "plain", "titles": title, "redirects": 1,
+                    "format": "json", "formatversion": 2},
+            timeout=httpx.Timeout(15.0), follow_redirects=True, headers=headers,
+        )
+        response.raise_for_status()
+        pages = response.json().get("query", {}).get("pages", [])
+        if pages and pages[0].get("missing") is None:
+            page = pages[0]
+            content = re.sub(r"\s+", " ", str(page.get("extract") or "")).strip()[:10000]
+            if len(content) >= 80:
+                return {"url": raw_url, "title": str(page.get("title") or title)[:240],
+                        "content": content, "characters_read": len(content),
+                        "reader": "Wikipedia text API"}
+    except Exception as exc:
+        failures.append(type(exc).__name__)
+    raise ValueError("Wikipedia could not be read through its public text APIs (" + ", ".join(failures) + ").")
+
+
+def _search_terms(query: str):
+    ignored = {"latest", "today", "current", "recent", "news", "search", "summarize",
+               "summary", "results", "about", "program", "please", "find", "give",
+               "me", "the", "and", "for", "with", "what", "are", "some", "important",
+               "updates", "update", "information", "tell", "technology"}
+    terms = [word.lower() for word in re.findall(r"[A-Za-z0-9]+", query) if len(word) > 2]
+    return [word for word in terms if word not in ignored]
+
+
+def _valid_search_item(item, query):
+    title = str(item.get("title") or "").strip()
+    url = str(item.get("href") or item.get("url") or "").strip()
+    if not title or not url.startswith(("https://", "http://")):
+        return False
+    host = (urlparse(url).hostname or "").lower()
+    blocked = ("google.com", "bing.com", "yahoo.com", "duckduckgo.com", "search.yahoo")
+    if any(host == domain or host.endswith("." + domain) for domain in blocked):
+        return False
+    terms = _search_terms(query)
+    haystack = (title + " " + str(item.get("body") or item.get("snippet") or "") + " " + host).lower()
+    # Keep results tied to the topic; short broad queries can match on any one meaningful term.
+    meaningful = [term for term in terms if term not in {"nasa", "artemis"}]
+    if meaningful and not any(term in haystack for term in meaningful):
+        if not ({"nasa", "artemis"} <= set(terms) and ("nasa.gov" in host or "artemis" in haystack)):
+            return False
+    return True
+
 
 def run_web_search(query: str):
-    # All adapters below are public/no-key services; no paid search API is required.
+    # Public, no-key search sources only. Reject search-engine homepages and off-topic results.
     failures = []
+    cleaned_query = " ".join(_search_terms(query)) or query
     try:
         from ddgs import DDGS
-        try:
-            results = list(DDGS(timeout=8).text(query, max_results=5))
-            if results:
-                return results
-        except Exception as exc:
-            failures.append("ddgs:" + type(exc).__name__)
+        results = list(DDGS(timeout=10).text(cleaned_query, max_results=10))
+        results = [item for item in results if _valid_search_item(item, query)]
+        if results:
+            return results[:5]
     except Exception as exc:
-        failures.append("ddgs-import:" + type(exc).__name__)
+        failures.append("ddgs:" + type(exc).__name__)
 
-    # GDELT's public DOC endpoint returns article URLs and metadata without an API key.
+    # GDELT provides article-level metadata without an API key.
     try:
         response = httpx.get(
             "https://api.gdeltproject.org/api/v2/doc/doc",
-            params={"query": query, "mode": "ArtList", "format": "json", "maxrecords": 5, "sort": "HybridRel"},
+            params={"query": cleaned_query, "mode": "ArtList", "format": "json",
+                    "maxrecords": 10, "sort": "HybridRel"},
             timeout=httpx.Timeout(12.0), follow_redirects=True,
             headers={"User-Agent": "AarohiResearch/1.0"},
         )
         response.raise_for_status()
-        data = response.json()
         items = []
-        for item in data.get("articles", [])[:5]:
+        for item in response.json().get("articles", [])[:10]:
             title = str(item.get("title") or "").strip()
             url = str(item.get("url") or "").strip()
-            snippet = str(item.get("seendate") or "") + ((" · " + str(item.get("domain") or "")) if item.get("domain") else "")
-            if title and url.startswith(("https://", "http://")):
-                items.append({"title": title[:240], "href": url, "body": snippet[:700]})
+            seen = str(item.get("seendate") or "")
+            snippet = seen + ((" · " + str(item.get("domain") or "")) if item.get("domain") else "")
+            candidate = {"title": title[:240], "href": url, "body": snippet[:700]}
+            if _valid_search_item(candidate, query):
+                items.append(candidate)
         if items:
-            return items
+            return items[:5]
     except Exception as exc:
         failures.append("gdelt:" + type(exc).__name__)
 
-    # Bing RSS is the next no-key fallback; Google News is last because it may rate-limit automated requests.
     feeds = [
-        ("https://www.bing.com/search", {"format": "rss", "q": query}),
-        ("https://news.google.com/rss/search", {"q": query, "hl": "en-IN", "gl": "IN", "ceid": "IN:en"}),
+        ("https://www.bing.com/search", {"format": "rss", "q": cleaned_query}),
+        ("https://news.google.com/rss/search", {"q": cleaned_query, "hl": "en-IN", "gl": "IN", "ceid": "IN:en"}),
     ]
     if re.search(r"\bNASA\b|\bArtemis\b", query, re.I):
-        feeds.append(("https://www.nasa.gov/news-release/feed/", {}))
+        feeds.insert(0, ("https://www.nasa.gov/tag/artemis/feed/", {}))
     for feed_url, params in feeds:
         try:
-            response = httpx.get(feed_url, params=params, timeout=httpx.Timeout(8.0),
-                                 follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (compatible; AarohiResearch/1.0)"})
+            response = httpx.get(feed_url, params=params, timeout=httpx.Timeout(10.0),
+                                 follow_redirects=True,
+                                 headers={"User-Agent": "Mozilla/5.0 (compatible; AarohiResearch/1.0)"})
             response.raise_for_status()
             root = ET.fromstring(response.text)
             items = []
             for item in root.findall(".//item"):
                 title = (item.findtext("title") or "").strip()
                 link = (item.findtext("link") or "").strip()
-                snippet = re.sub(r"<[^>]+>", " ", (item.findtext("description") or "")).strip()
-                haystack = (title + " " + snippet).lower()
-                if "nasa.gov" in feed_url and "artemis" not in haystack:
-                    continue
-                if title and link.startswith(("https://", "http://")):
-                    items.append({"title": title[:240], "href": link, "body": snippet[:700]})
+                description = re.sub(r"<[^>]+>", " ", (item.findtext("description") or "")).strip()
+                pubdate = (item.findtext("pubDate") or "").strip()
+                snippet = (pubdate + " · " + description).strip(" ·")
+                candidate = {"title": title[:240], "href": link, "body": snippet[:700]}
+                if _valid_search_item(candidate, query):
+                    items.append(candidate)
                 if len(items) >= 5:
                     break
             if items:
                 return items
         except Exception as exc:
-            failures.append(feed_url.split("/")[2] + ":" + type(exc).__name__)
-    # Encyclopedic fallback for non-time-sensitive research. This is deliberately
-    # skipped for breaking/current/news queries so old background material is not
-    # presented as live reporting.
+            failures.append((urlparse(feed_url).hostname or "rss") + ":" + type(exc).__name__)
+
+    # Wikipedia is useful for background research, never as a substitute for live news.
     time_sensitive = bool(re.search(r"\b(latest|today|current|recent|news|updates?|this week|this month)\b", query, re.I))
     if not time_sensitive:
         try:
             response = httpx.get(
                 "https://en.wikipedia.org/w/api.php",
-                params={"action": "query", "list": "search", "srsearch": query,
-                        "srlimit": 5, "format": "json"},
+                params={"action": "query", "list": "search", "srsearch": cleaned_query,
+                        "srlimit": 8, "format": "json"},
                 timeout=httpx.Timeout(12.0), follow_redirects=True,
                 headers={"User-Agent": "AarohiAI/1.0 (research search)"},
             )
             response.raise_for_status()
             items = []
-            for item in response.json().get("query", {}).get("search", [])[:5]:
+            for item in response.json().get("query", {}).get("search", [])[:8]:
                 title = str(item.get("title") or "").strip()
                 page_id = item.get("pageid")
-                snippet = re.sub(r"<[^>]+>", " ", str(item.get("snippet") or ""))
-                snippet = re.sub(r"\s+", " ", snippet).strip()
-                if title and page_id:
-                    items.append({"title": title[:240],
-                                  "href": "https://en.wikipedia.org/?curid=" + str(page_id),
-                                  "body": snippet[:700]})
+                snippet = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", str(item.get("snippet") or ""))).strip()
+                candidate = {"title": title[:240], "href": "https://en.wikipedia.org/?curid=" + str(page_id),
+                             "body": snippet[:700]}
+                if title and page_id and _valid_search_item(candidate, query):
+                    items.append(candidate)
             if items:
-                return items
+                return items[:5]
         except Exception as exc:
             failures.append("wikipedia:" + type(exc).__name__)
-    print("Aarohi web search failed across sources: " + ", ".join(failures or ["no results"]))
+    print("Aarohi web search failed across sources: " + ", ".join(failures or ["no relevant results"]))
     return []
 
 
