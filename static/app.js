@@ -46,21 +46,21 @@ function workspaceBytes(value) {
 }
 function parseWorkspaceCommand(message) {
   const m = message.trim();
-  if (/^(list|show|display)\\s+(my\\s+)?files\\s*[.!]?$/i.test(m)) return { method: "GET", path: "/api/workspace/files" };
-  let x = m.match(/^read\\s+file\\s+(.+?)\\s*[.!]?$/i);
+  if (/^(list|show|display)\s+(my\s+)?files\s*[.!]?$/i.test(m)) return { method: "GET", path: "/api/workspace/files" };
+  let x = m.match(/^read\s+file\s+(.+?)\s*[.!]?$/i);
   if (x) return { method: "READ", name: x[1].trim() };
-  x = m.match(/^download\\s+file\\s+(.+?)\\s*[.!]?$/i);
+  x = m.match(/^download\s+file\s+(.+?)\s*[.!]?$/i);
   if (x) return { method: "DOWNLOAD", name: x[1].trim() };
-  x = m.match(/^delete\\s+file\\s+(.+?)\\s*[.!]?$/i);
+  x = m.match(/^delete\s+file\s+(.+?)\s*[.!]?$/i);
   if (x) return { method: "DELETE", name: x[1].trim() };
-  x = m.match(/^(create|creat|save|write)\\s+(?:a\\s+)?file\\s+([^:]+):\\s*([\\s\\S]*)$/i);
+  x = m.match(/^(create|creat|save|write)\s+(?:a\s+)?file\s+([^:]+):\s*([\s\S]*)$/i);
   if (x) return { method: "PUT", body: { name: x[2].trim(), content: x[3] } };
-  x = m.match(/^(?:create|creat|make)\\s+(?:a\\s+)?file\\s+named\\s+(.+?)\\s+with\\s+content\\s+([\\s\\S]*)$/i);
+  x = m.match(/^(?:create|creat|make)\s+(?:a\s+)?file\s+named\s+(.+?)\s+with\s+content\s+([\s\S]*)$/i);
   if (x) return { method: "PUT", body: { name: x[1].trim(), content: x[2] } };
   // Natural-language forms, including the common typo "creat".
-  x = m.match(/^(?:create|creat|make)\\s+(?:a\\s+)?file\\s+named\\s+(.+?)\\s+and\\s+save\\s+the\\s+text\\s+([\\s\\S]+?)\\s+inside\\s+it[.!]?$/i);
+  x = m.match(/^(?:create|creat|make)\s+(?:a\s+)?file\s+named\s+(.+?)\s+and\s+save\s+the\s+text\s+([\s\S]+?)\s+inside\s+it[.!]?$/i);
   if (x) return { method: "PUT", body: { name: x[1].trim(), content: x[2].trim() } };
-  x = m.match(/^save\\s+the\\s+text\\s+([\\s\\S]+?)\\s+in(?:to)?\\s+(?:a\\s+)?file\\s+named\\s+(.+?)[.!]?$/i);
+  x = m.match(/^save\s+the\s+text\s+([\s\S]+?)\s+in(?:to)?\s+(?:a\s+)?file\s+named\s+(.+?)[.!]?$/i);
   if (x) return { method: "PUT", body: { name: x[2].trim(), content: x[1].trim() } };
   return null;
 }
@@ -78,13 +78,13 @@ async function runWorkspaceCommand(command) {
   if (command.method === "GET") {
     const entries = Object.entries(files).sort(([a], [b]) => a.localeCompare(b));
     return entries.length
-      ? "Workspace files (saved on this device):\\n" + entries.map(([name, content]) => name + " (" + workspaceBytes(content) + " bytes)").join("\\n")
+      ? "Workspace files (saved on this device):\n" + entries.map(([name, content]) => name + " (" + workspaceBytes(content) + " bytes)").join("\n")
       : "Workspace is empty on this device. Create a file first; saved files will remain available in this browser.";
   }
   const name = validateLocalFilename(command.name || command.body?.name);
   if (command.method === "READ" || command.method === "DOWNLOAD") {
     if (typeof files[name] !== "string") throw new Error("File not found: " + name + ". Use 'Show my files' to see saved files.");
-    if (command.method === "READ") return "File: " + name + "\\n\\n" + files[name];
+    if (command.method === "READ") return "File: " + name + "\n\n" + files[name];
     const extension = name.split(".").pop().toLowerCase();
     const mime = ({ txt: "text/plain;charset=utf-8", py: "text/x-python;charset=utf-8", js: "text/javascript;charset=utf-8", html: "text/html;charset=utf-8", css: "text/css;charset=utf-8", json: "application/json;charset=utf-8", md: "text/markdown;charset=utf-8", csv: "text/csv;charset=utf-8", xml: "application/xml;charset=utf-8" })[extension] || "application/octet-stream";
     const url = URL.createObjectURL(new Blob([files[name]], { type: mime }));
