@@ -794,7 +794,8 @@ def run_safe_python(source: str):
         elif isinstance(statement, ast.Expr):
             output.append(str(expr(statement.value)))
         else:
-            raise ValueError("Allowed statements: variable assignment and print(expression)")        if sum(len(x) for x in output) > 4000: raise ValueError("Output limit exceeded")
+            raise ValueError("Allowed statements: variable assignment and print(expression)")
+        if sum(len(x) for x in output) > 4000: raise ValueError("Output limit exceeded")
     return "\n".join(output) if output else "Code ran successfully (no output)."
 
 
