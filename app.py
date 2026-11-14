@@ -378,8 +378,11 @@ def _search_terms(query: str):
         "updates", "update", "information", "tell", "three", "stories", "story",
         "world", "global", "technology", "tech", "from", "country", "countries",
         "related", "articles", "article", "need", "want", "show", "get",
+        "last", "days", "day", "past", "within", "over", "ago", "month",
+        "months", "week", "weeks", "involving", "involve", "during", "between",
+        "stories", "story", "30", "7", "14",
     }
-    terms = [word.lower() for word in re.findall(r"[A-Za-z0-9]+", query) if len(word) >= 2]
+    terms = [word.lower() for word in re.findall(r"[A-Za-z0-9]+", query) if len(word) >= 2 and not word.isdigit()]
     return [word for word in terms if word not in ignored]
 
 
@@ -449,15 +452,25 @@ def run_web_search(query: str):
             item["_relevance"] = _search_match_score(item, query)
             collected.append(item)
 
-    # DuckDuckGo is useful for general research, but its results do not always
-    # expose reliable publication dates. For "latest" requests, use the sources
-    # below that are explicitly constrained to the last 30 days.
-    if not is_latest:
-        try:
-            from ddgs import DDGS
-            add_candidates(list(DDGS(timeout=10).text(cleaned_query, max_results=15)))
-        except Exception as exc:
-            failures.append("ddgs:" + type(exc).__name__)
+    # DDGS exposes a dedicated news endpoint with dates. Use its month filter
+    # for current-news requests; use text search for evergreen research.
+    try:
+        from ddgs import DDGS
+        ddgs = DDGS(timeout=10)
+        if is_latest:
+            news_items = list(ddgs.news(cleaned_query, timelimit="m", max_results=15))
+            normalized = []
+            for item in news_items:
+                normalized.append({
+                    "title": str(item.get("title") or "")[:240],
+                    "href": str(item.get("url") or item.get("href") or ""),
+                    "body": " · ".join(str(item.get(key) or "") for key in ("date", "source", "body"))[:700],
+                })
+            add_candidates(normalized)
+        else:
+            add_candidates(list(ddgs.text(cleaned_query, max_results=15)))
+    except Exception as exc:
+        failures.append("ddgs:" + type(exc).__name__)
 
     # GDELT indexes international news articles. Restrict recent-news requests to a
     # defined period instead of returning old background pages as current news.
@@ -512,13 +525,26 @@ def run_web_search(query: str):
             response.raise_for_status()
             root = ET.fromstring(response.text)
             items = []
-            for item in root.findall(".//item"):
-                title = (item.findtext("title") or "").strip()
-                link = (item.findtext("link") or "").strip()
-                description = re.sub(r"<[^>]+>", " ", (item.findtext("description") or "")).strip()
-                pubdate = (item.findtext("pubDate") or "").strip()
+            # Support both RSS (<item>) and Atom (<entry>) feeds, including
+            # namespaced XML and Atom link href attributes.
+            for node in root.iter():
+                kind = node.tag.rsplit("}", 1)[-1].lower()
+                if kind not in ("item", "entry"):
+                    continue
+                fields = {}
+                for child in list(node):
+                    child_name = child.tag.rsplit("}", 1)[-1].lower()
+                    fields[child_name] = (child.text or "").strip()
+                link_node = next((child for child in list(node) if child.tag.rsplit("}", 1)[-1].lower() == "link"), None)
+                link = ((link_node.attrib.get("href") or link_node.text or "").strip() if link_node is not None else fields.get("link", ""))
+                title = fields.get("title", "")
+                description = re.sub(r"<[^>]+>", " ", fields.get("description") or fields.get("summary") or fields.get("content") or "").strip()
+                pubdate = fields.get("pubdate") or fields.get("published") or fields.get("updated") or ""
                 snippet = (pubdate + " · " + description).strip(" ·")
-                items.append({"title": title[:240], "href": link, "body": snippet[:700]})
+                if title and link:
+                    items.append({"title": title[:240], "href": link, "body": snippet[:700]})
+            if not items:
+                failures.append((urlparse(feed_url).hostname or "rss") + ":NoFeedItems")
             add_candidates(items)
         except Exception as exc:
             failures.append((urlparse(feed_url).hostname or "rss") + ":" + type(exc).__name__)
@@ -567,7 +593,9 @@ def run_web_search(query: str):
         reverse=True,
     )
     if not ranked:
-        print("Aarohi web search found no relevant articles; sources: " + ", ".join(failures or ["no matching articles"]))
+        print("Aarohi web search found no relevant articles; query_terms=" + repr(terms) + "; sources: " + ", ".join(failures or ["no matching articles"]))
+    else:
+        print("Aarohi web search returned " + str(len(ranked)) + " relevant articles from " + str(len(collected)) + " candidates.")
     return [{key: value for key, value in item.items() if key != "_relevance"} for item in ranked[:5]]
 
 @app.post("/api/research")
