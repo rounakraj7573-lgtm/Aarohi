@@ -28,54 +28,100 @@ if (!/^[A-Za-z0-9_-]{16,80}$/.test(workspaceId)) {
   workspaceId = (window.crypto?.randomUUID?.() || ("ws_" + Date.now() + Math.random().toString(36).slice(2))).replace(/[^A-Za-z0-9_-]/g, "");
   localStorage.setItem("aarohi_workspace_id", workspaceId);
 }
+const WORKSPACE_STORE_KEY = "aarohi_workspace_files_v1";
+const WORKSPACE_MAX_FILES = 10;
+const WORKSPACE_MAX_FILE_BYTES = 16_384;
+const WORKSPACE_MAX_TOTAL_BYTES = 65_536;
+
+function readLocalWorkspace() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(WORKSPACE_STORE_KEY) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+function workspaceBytes(value) {
+  return new TextEncoder().encode(String(value)).length;
+}
 function parseWorkspaceCommand(message) {
   const m = message.trim();
-  if (/^(list|show)\s+(my\s+)?files$/i.test(m)) return { method: "GET", path: "/api/workspace/files" };
-  let x = m.match(/^read\s+file\s+(.+)$/i);
-  if (x) return { method: "GET", path: "/api/workspace/files/" + encodeURIComponent(x[1].trim()) };
-  x = m.match(/^download\s+file\s+(.+)$/i);
-  if (x) return { method: "GET", path: "/api/workspace/files/" + encodeURIComponent(x[1].trim()), download: true };
-  x = m.match(/^delete\s+file\s+(.+)$/i);
-  if (x) return { method: "DELETE", path: "/api/workspace/files/" + encodeURIComponent(x[1].trim()) };
-  x = m.match(/^(create|save|write)\s+file\s+([^:]+):\s*([\s\S]*)$/i);
-  if (x) return { method: "PUT", path: "/api/workspace/files", body: { name: x[2].trim(), content: x[3] } };
-  x = m.match(/^create\s+(?:a\s+)?file\s+named\s+([^\s]+)\s+with\s+content\s+([\s\S]*)$/i);
-  if (x) return { method: "PUT", path: "/api/workspace/files", body: { name: x[1].trim(), content: x[2] } };
-  // Natural-language version used in the guided workspace test.
-  let natural = m.match(/^create\s+(?:a\s+)?file\s+named\s+(.+?)\s+and\s+save\s+the\s+text\s+([\s\S]+?)\s+inside\s+it[.!]?$/i);
-  if (natural) return { method: "PUT", path: "/api/workspace/files", body: { name: natural[1].trim(), content: natural[2].trim() } };
-  natural = m.match(/^save\s+the\s+text\s+([\s\S]+?)\s+in(?:to)?\s+(?:a\s+)?file\s+named\s+(.+?)[.!]?$/i);
-  if (natural) return { method: "PUT", path: "/api/workspace/files", body: { name: natural[2].trim(), content: natural[1].trim() } };
+  if (/^(list|show|display)\\s+(my\\s+)?files\\s*[.!]?$/i.test(m)) return { method: "GET", path: "/api/workspace/files" };
+  let x = m.match(/^read\\s+file\\s+(.+?)\\s*[.!]?$/i);
+  if (x) return { method: "READ", name: x[1].trim() };
+  x = m.match(/^download\\s+file\\s+(.+?)\\s*[.!]?$/i);
+  if (x) return { method: "DOWNLOAD", name: x[1].trim() };
+  x = m.match(/^delete\\s+file\\s+(.+?)\\s*[.!]?$/i);
+  if (x) return { method: "DELETE", name: x[1].trim() };
+  x = m.match(/^(create|creat|save|write)\\s+(?:a\\s+)?file\\s+([^:]+):\\s*([\\s\\S]*)$/i);
+  if (x) return { method: "PUT", body: { name: x[2].trim(), content: x[3] } };
+  x = m.match(/^(?:create|creat|make)\\s+(?:a\\s+)?file\\s+named\\s+(.+?)\\s+with\\s+content\\s+([\\s\\S]*)$/i);
+  if (x) return { method: "PUT", body: { name: x[1].trim(), content: x[2] } };
+  // Natural-language forms, including the common typo "creat".
+  x = m.match(/^(?:create|creat|make)\\s+(?:a\\s+)?file\\s+named\\s+(.+?)\\s+and\\s+save\\s+the\\s+text\\s+([\\s\\S]+?)\\s+inside\\s+it[.!]?$/i);
+  if (x) return { method: "PUT", body: { name: x[1].trim(), content: x[2].trim() } };
+  x = m.match(/^save\\s+the\\s+text\\s+([\\s\\S]+?)\\s+in(?:to)?\\s+(?:a\\s+)?file\\s+named\\s+(.+?)[.!]?$/i);
+  if (x) return { method: "PUT", body: { name: x[2].trim(), content: x[1].trim() } };
   return null;
 }
-async function runWorkspaceCommand(command) {
-  const response = await fetch(API_BASE + command.path, {
-    method: command.method,
-    headers: { "Content-Type": "application/json", "X-Aarohi-Access-Code": accessCode, "X-Aarohi-Workspace-ID": workspaceId },
-    body: command.body ? JSON.stringify(command.body) : undefined
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.detail || "Workspace request failed.");
-  if (command.method === "GET" && Array.isArray(data.files)) {
-    return data.files.length ? "Workspace files:\n" + data.files.map(x => x.name + " (" + x.size + " bytes)").join("\n") : "Workspace is empty.";
+function validateLocalFilename(name) {
+  const clean = String(name || "").trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$/.test(clean) || clean === "." || clean === ".." || clean.includes("..")) {
+    throw new Error("Use a simple filename (letters, numbers, spaces, dot, dash or underscore; max 64 characters).");
   }
-  if (command.download && typeof data.content === "string") {
-    const extension = String(data.name || "").split(".").pop().toLowerCase();
+  return clean;
+}
+async function runWorkspaceCommand(command) {
+  // Browser-local storage is persistent across reloads/restarts and keeps the beta
+  // workspace usable without a paid database or an ephemeral server-memory store.
+  const files = readLocalWorkspace();
+  if (command.method === "GET") {
+    const entries = Object.entries(files).sort(([a], [b]) => a.localeCompare(b));
+    return entries.length
+      ? "Workspace files (saved on this device):\\n" + entries.map(([name, content]) => name + " (" + workspaceBytes(content) + " bytes)").join("\\n")
+      : "Workspace is empty on this device. Create a file first; saved files will remain available in this browser.";
+  }
+  const name = validateLocalFilename(command.name || command.body?.name);
+  if (command.method === "READ" || command.method === "DOWNLOAD") {
+    if (typeof files[name] !== "string") throw new Error("File not found: " + name + ". Use 'Show my files' to see saved files.");
+    if (command.method === "READ") return "File: " + name + "\\n\\n" + files[name];
+    const extension = name.split(".").pop().toLowerCase();
     const mime = ({ txt: "text/plain;charset=utf-8", py: "text/x-python;charset=utf-8", js: "text/javascript;charset=utf-8", html: "text/html;charset=utf-8", css: "text/css;charset=utf-8", json: "application/json;charset=utf-8", md: "text/markdown;charset=utf-8", csv: "text/csv;charset=utf-8", xml: "application/xml;charset=utf-8" })[extension] || "application/octet-stream";
-    const url = URL.createObjectURL(new Blob([data.content], { type: mime }));
+    const url = URL.createObjectURL(new Blob([files[name]], { type: mime }));
     const link = document.createElement("a");
     link.href = url;
-    link.download = data.name;
+    link.download = name;
     document.body.appendChild(link);
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 15000);
-    return "Downloaded " + data.name + " (" + mime.split(";")[0] + ").";
+    return "Downloaded " + name + " (" + mime.split(";")[0] + ").";
   }
-  if (typeof data.content === "string") return "File: " + data.name + "\n\n" + data.content;
-  if (data.saved === true) return "Saved " + data.name + " (" + data.size + " bytes). Workspace files are temporary and may be cleared when the server restarts.";
-  if (data.deleted === true) return "Deleted " + data.name + " from the workspace.";
-  return JSON.stringify(data);
+  if (command.method === "DELETE") {
+    if (typeof files[name] !== "string") throw new Error("File not found: " + name + ".");
+    delete files[name];
+    localStorage.setItem(WORKSPACE_STORE_KEY, JSON.stringify(files));
+    return "Deleted " + name + " from this device's workspace.";
+  }
+  if (command.method === "PUT") {
+    const content = String(command.body?.content ?? "");
+    const size = workspaceBytes(content);
+    if (size > WORKSPACE_MAX_FILE_BYTES) throw new Error("This file is too large. Maximum size is 16 KB.");
+    if (!(name in files) && Object.keys(files).length >= WORKSPACE_MAX_FILES) throw new Error("Workspace file limit reached (10 files).");
+    const total = Object.entries(files).reduce((sum, [key, value]) => sum + workspaceBytes(value), 0);
+    const oldSize = workspaceBytes(files[name] || "");
+    if (total - oldSize + size > WORKSPACE_MAX_TOTAL_BYTES) throw new Error("Workspace storage limit reached (64 KB).");
+    files[name] = content;
+    try {
+      localStorage.setItem(WORKSPACE_STORE_KEY, JSON.stringify(files));
+    } catch {
+      throw new Error("This browser could not save the file. Check available device storage and try again.");
+    }
+    const verified = readLocalWorkspace();
+    if (typeof verified[name] !== "string" || verified[name] !== content) throw new Error("File save could not be verified. Please try again.");
+    return "Saved and verified " + name + " (" + size + " bytes) on this device. It will remain available in this browser after reloads.";
+  }
+  throw new Error("Unsupported workspace command.");
 }
 
 function currentSession() { return sessions.find(s => s.id === activeSessionId); }
