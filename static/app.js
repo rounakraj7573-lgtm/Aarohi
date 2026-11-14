@@ -46,7 +46,7 @@ function workspaceBytes(value) {
 }
 function parseWorkspaceCommand(message) {
   const m = message.trim();
-  if (/^(list|show|display)\s+(my\s+)?files\s*[.!]?$/i.test(m)) return { method: "GET", path: "/api/workspace/files" };
+  if (/^(list|show|display)\s+(my\s+)?files?\s*[.!]?$/i.test(m)) return { method: "GET", path: "/api/workspace/files" };
   let x = m.match(/^read\s+file\s+(.+?)\s*[.!]?$/i);
   if (x) return { method: "READ", name: x[1].trim() };
   x = m.match(/^download\s+file\s+(.+?)\s*[.!]?$/i);
