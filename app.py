@@ -436,7 +436,7 @@ def run_web_search(query: str):
     failures = []
     terms = _search_terms(query)
     cleaned_query = " ".join(terms) or query
-    is_latest = bool(re.search(r"\\b(latest|today|current|recent|news|updates?|this week|this month)\\b", query, re.I))
+    is_latest = bool(re.search(r"\b(latest|today|current|recent|news|updates?|this week|this month)\b", query, re.I))
     collected = []
 
     def add_candidates(items):
@@ -495,7 +495,7 @@ def run_web_search(query: str):
             "q": rss_query, "hl": "en-IN", "gl": "IN", "ceid": "IN:en"
         }),
     ]
-    if re.search(r"\\bNASA\\b|\\bArtemis\\b", query, re.I):
+    if re.search(r"\bNASA\b|\bArtemis\b", query, re.I):
         feeds.insert(0, ("https://www.nasa.gov/tag/artemis/feed/", {}))
     for feed_url, params in feeds:
         try:
@@ -539,7 +539,7 @@ def run_web_search(query: str):
                 title = str(item.get("title") or "").strip()
                 page_id = item.get("pageid")
                 snippet = re.sub(
-                    r"\\s+", " ",
+                    r"\s+", " ",
                     re.sub(r"<[^>]+>", " ", str(item.get("snippet") or ""))
                 ).strip()
                 if title and page_id:
