@@ -197,8 +197,7 @@ def configured_providers():
     available = []
     allowed = allowed_provider_ids()
     for provider_id, config in PROVIDERS.items():
-        if provider_id not in allowed:
-            continue
+        if provider_id not in allowed:            continue
         key = os.getenv(config["key_env"], "").strip()
         model = os.getenv(config["model_env"], "").strip()
         base = os.getenv(config.get("base_env", ""), "").strip() if config.get("base_env") else ""
@@ -380,7 +379,7 @@ def _search_terms(query: str):
         "related", "articles", "article", "need", "want", "show", "get",
         "last", "days", "day", "past", "within", "over", "ago", "month",
         "months", "week", "weeks", "involving", "involve", "during", "between",
-        "stories", "story", "30", "7", "14",
+        "stories", "story", "source", "sources", "link", "links", "date", "dates", "30", "7", "14",
     }
     terms = [word.lower() for word in re.findall(r"[A-Za-z0-9]+", query) if len(word) >= 2 and not word.isdigit()]
     return [word for word in terms if word not in ignored]
@@ -398,7 +397,6 @@ _SEARCH_ALIASES = {
     "technology": ("technology", "tech"),
     "tech": ("technology", "tech"),
 }
-
 
 def _search_match_score(item, query):
     title = str(item.get("title") or "").strip()
@@ -597,7 +595,6 @@ def run_web_search(query: str):
     else:
         print("Aarohi web search returned " + str(len(ranked)) + " relevant articles from " + str(len(collected)) + " candidates.")
     return [{key: value for key, value in item.items() if key != "_relevance"} for item in ranked[:5]]
-
 @app.post("/api/research")
 async def research(payload: ResearchRequest, request: Request):
     require_access(request)
@@ -797,8 +794,7 @@ def run_safe_python(source: str):
         elif isinstance(statement, ast.Expr):
             output.append(str(expr(statement.value)))
         else:
-            raise ValueError("Allowed statements: variable assignment and print(expression)")
-        if sum(len(x) for x in output) > 4000: raise ValueError("Output limit exceeded")
+            raise ValueError("Allowed statements: variable assignment and print(expression)")        if sum(len(x) for x in output) > 4000: raise ValueError("Output limit exceeded")
     return "\n".join(output) if output else "Code ran successfully (no output)."
 
 
