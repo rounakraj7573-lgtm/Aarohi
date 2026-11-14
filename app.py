@@ -449,12 +449,15 @@ def run_web_search(query: str):
             item["_relevance"] = _search_match_score(item, query)
             collected.append(item)
 
-    # DuckDuckGo search results.
-    try:
-        from ddgs import DDGS
-        add_candidates(list(DDGS(timeout=10).text(cleaned_query, max_results=15)))
-    except Exception as exc:
-        failures.append("ddgs:" + type(exc).__name__)
+    # DuckDuckGo is useful for general research, but its results do not always
+    # expose reliable publication dates. For "latest" requests, use the sources
+    # below that are explicitly constrained to the last 30 days.
+    if not is_latest:
+        try:
+            from ddgs import DDGS
+            add_candidates(list(DDGS(timeout=10).text(cleaned_query, max_results=15)))
+        except Exception as exc:
+            failures.append("ddgs:" + type(exc).__name__)
 
     # GDELT indexes international news articles. Restrict recent-news requests to a
     # defined period instead of returning old background pages as current news.
