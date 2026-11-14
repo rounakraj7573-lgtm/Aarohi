@@ -371,12 +371,46 @@ def fetch_wikipedia_article(raw_url: str):
 
 
 def _search_terms(query: str):
-    ignored = {"latest", "today", "current", "recent", "news", "search", "summarize",
-               "summary", "results", "about", "program", "please", "find", "give",
-               "me", "the", "and", "for", "with", "what", "are", "some", "important",
-               "updates", "update", "information", "tell", "three", "important"}
-    terms = [word.lower() for word in re.findall(r"[A-Za-z0-9]+", query) if len(word) > 2]
+    ignored = {
+        "latest", "today", "current", "recent", "news", "search", "summarize",
+        "summary", "results", "about", "program", "please", "find", "give",
+        "me", "the", "and", "for", "with", "what", "are", "some", "important",
+        "updates", "update", "information", "tell", "three", "stories", "story",
+        "world", "global", "technology", "tech", "from", "country", "countries",
+        "related", "articles", "article", "need", "want", "show", "get",
+    }
+    terms = [word.lower() for word in re.findall(r"[A-Za-z0-9]+", query) if len(word) >= 2]
     return [word for word in terms if word not in ignored]
+
+
+_SEARCH_ALIASES = {
+    "ai": ("ai", "artificial intelligence"),
+    "chip": ("chip", "chips", "semiconductor", "semiconductors", "microchip"),
+    "chips": ("chip", "chips", "semiconductor", "semiconductors", "microchip"),
+    "typhoon": ("typhoon", "tropical storm", "cyclone", "storm"),
+    "response": ("response", "relief", "aid", "rescue", "evacuation", "recovery"),
+    "philippines": ("philippines", "filipino", "philippine"),
+    "korea": ("korea", "korean"),
+    "taiwan": ("taiwan", "taiwanese"),
+    "technology": ("technology", "tech"),
+    "tech": ("technology", "tech"),
+}
+
+
+def _search_match_score(item, query):
+    title = str(item.get("title") or "").strip()
+    body = str(item.get("body") or item.get("snippet") or "")
+    url = str(item.get("href") or item.get("url") or "")
+    haystack = (title + " " + body + " " + (urlparse(url).hostname or "")).lower()
+    terms = _search_terms(query)
+    if not terms:
+        return 1
+    matched = 0
+    for term in terms:
+        aliases = _SEARCH_ALIASES.get(term, (term,))
+        if any(re.search(r"(?<![a-z0-9])" + re.escape(alias) + r"(?![a-z0-9])", haystack) for alias in aliases):
+            matched += 1
+    return matched
 
 
 def _valid_search_item(item, query):
@@ -389,65 +423,89 @@ def _valid_search_item(item, query):
     if any(host == domain or host.endswith("." + domain) for domain in blocked):
         return False
     terms = _search_terms(query)
-    haystack = (title + " " + str(item.get("body") or item.get("snippet") or "") + " " + host).lower()
-    # Keep results tied to the topic; short broad queries can match on any one meaningful term.
-    meaningful = [term for term in terms if term not in {"nasa", "artemis"}]
-    aliases = {"technology": ("technology", "tech"), "tech": ("tech", "technology")}
-    matched = any(any(alias in haystack for alias in aliases.get(term, (term,))) for term in meaningful)
-    if meaningful and not matched:
-        if not ({"nasa", "artemis"} <= set(terms) and ("nasa.gov" in host or "artemis" in haystack)):
-            return False
-    return True
-
+    if not terms:
+        return True
+    # Require at least two independent topic matches for multi-word queries.
+    # This prevents a generic article mentioning only a country or broad category
+    # from being presented as a relevant result.
+    required = min(2, len(terms))
+    return _search_match_score(item, query) >= required
 
 def run_web_search(query: str):
-    # Public, no-key search sources only. Reject search-engine homepages and off-topic results.
+    # Use several public, no-key article sources and never fall back to generic portals.
     failures = []
-    cleaned_query = " ".join(_search_terms(query)) or query
+    terms = _search_terms(query)
+    cleaned_query = " ".join(terms) or query
+    is_latest = bool(re.search(r"\\b(latest|today|current|recent|news|updates?|this week|this month)\\b", query, re.I))
+    collected = []
+
+    def add_candidates(items):
+        for item in items:
+            if not _valid_search_item(item, query):
+                continue
+            url = str(item.get("href") or item.get("url") or "").strip()
+            if not url:
+                continue
+            item["_relevance"] = _search_match_score(item, query)
+            collected.append(item)
+
+    # DuckDuckGo search results.
     try:
         from ddgs import DDGS
-        results = list(DDGS(timeout=10).text(cleaned_query, max_results=10))
-        results = [item for item in results if _valid_search_item(item, query)]
-        if results:
-            return results[:5]
+        add_candidates(list(DDGS(timeout=10).text(cleaned_query, max_results=15)))
     except Exception as exc:
         failures.append("ddgs:" + type(exc).__name__)
 
-    # GDELT provides article-level metadata without an API key.
+    # GDELT indexes international news articles. Restrict recent-news requests to a
+    # defined period instead of returning old background pages as current news.
     try:
+        params = {
+            "query": cleaned_query,
+            "mode": "ArtList",
+            "format": "json",
+            "maxrecords": 30,
+            "sort": "HybridRel",
+        }
+        if is_latest:
+            params["timespan"] = "30d"
         response = httpx.get(
             "https://api.gdeltproject.org/api/v2/doc/doc",
-            params={"query": cleaned_query, "mode": "ArtList", "format": "json",
-                    "maxrecords": 10, "sort": "HybridRel"},
-            timeout=httpx.Timeout(12.0), follow_redirects=True,
+            params=params,
+            timeout=httpx.Timeout(12.0),
+            follow_redirects=True,
             headers={"User-Agent": "AarohiResearch/1.0"},
         )
         response.raise_for_status()
         items = []
-        for item in response.json().get("articles", [])[:10]:
+        for item in response.json().get("articles", [])[:30]:
             title = str(item.get("title") or "").strip()
             url = str(item.get("url") or "").strip()
             seen = str(item.get("seendate") or "")
             snippet = seen + ((" · " + str(item.get("domain") or "")) if item.get("domain") else "")
-            candidate = {"title": title[:240], "href": url, "body": snippet[:700]}
-            if _valid_search_item(candidate, query):
-                items.append(candidate)
-        if items:
-            return items[:5]
+            items.append({"title": title[:240], "href": url, "body": snippet[:700]})
+        add_candidates(items)
     except Exception as exc:
         failures.append("gdelt:" + type(exc).__name__)
 
+    # RSS article feeds are a no-key fallback with international coverage.
+    rss_query = cleaned_query + (" when:30d" if is_latest else "")
     feeds = [
-        ("https://www.bing.com/search", {"format": "rss", "q": cleaned_query}),
-        ("https://news.google.com/rss/search", {"q": cleaned_query, "hl": "en-IN", "gl": "IN", "ceid": "IN:en"}),
+        ("https://www.bing.com/search", {"format": "rss", "q": rss_query}),
+        ("https://news.google.com/rss/search", {
+            "q": rss_query, "hl": "en-IN", "gl": "IN", "ceid": "IN:en"
+        }),
     ]
-    if re.search(r"\bNASA\b|\bArtemis\b", query, re.I):
+    if re.search(r"\\bNASA\\b|\\bArtemis\\b", query, re.I):
         feeds.insert(0, ("https://www.nasa.gov/tag/artemis/feed/", {}))
     for feed_url, params in feeds:
         try:
-            response = httpx.get(feed_url, params=params, timeout=httpx.Timeout(10.0),
-                                 follow_redirects=True,
-                                 headers={"User-Agent": "Mozilla/5.0 (compatible; AarohiResearch/1.0)"})
+            response = httpx.get(
+                feed_url,
+                params=params,
+                timeout=httpx.Timeout(10.0),
+                follow_redirects=True,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; AarohiResearch/1.0)"},
+            )
             response.raise_for_status()
             root = ET.fromstring(response.text)
             items = []
@@ -457,25 +515,22 @@ def run_web_search(query: str):
                 description = re.sub(r"<[^>]+>", " ", (item.findtext("description") or "")).strip()
                 pubdate = (item.findtext("pubDate") or "").strip()
                 snippet = (pubdate + " · " + description).strip(" ·")
-                candidate = {"title": title[:240], "href": link, "body": snippet[:700]}
-                if _valid_search_item(candidate, query):
-                    items.append(candidate)
-                if len(items) >= 5:
-                    break
-            if items:
-                return items
+                items.append({"title": title[:240], "href": link, "body": snippet[:700]})
+            add_candidates(items)
         except Exception as exc:
             failures.append((urlparse(feed_url).hostname or "rss") + ":" + type(exc).__name__)
 
-    # Wikipedia is useful for background research, never as a substitute for live news.
-    time_sensitive = bool(re.search(r"\b(latest|today|current|recent|news|updates?|this week|this month)\b", query, re.I))
-    if not time_sensitive:
+    # Do not use Wikipedia for a request explicitly asking for current news.
+    if not is_latest:
         try:
             response = httpx.get(
                 "https://en.wikipedia.org/w/api.php",
-                params={"action": "query", "list": "search", "srsearch": cleaned_query,
-                        "srlimit": 8, "format": "json"},
-                timeout=httpx.Timeout(12.0), follow_redirects=True,
+                params={
+                    "action": "query", "list": "search", "srsearch": cleaned_query,
+                    "srlimit": 8, "format": "json",
+                },
+                timeout=httpx.Timeout(12.0),
+                follow_redirects=True,
                 headers={"User-Agent": "AarohiAI/1.0 (research search)"},
             )
             response.raise_for_status()
@@ -483,18 +538,34 @@ def run_web_search(query: str):
             for item in response.json().get("query", {}).get("search", [])[:8]:
                 title = str(item.get("title") or "").strip()
                 page_id = item.get("pageid")
-                snippet = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", str(item.get("snippet") or ""))).strip()
-                candidate = {"title": title[:240], "href": "https://en.wikipedia.org/?curid=" + str(page_id),
-                             "body": snippet[:700]}
-                if title and page_id and _valid_search_item(candidate, query):
-                    items.append(candidate)
-            if items:
-                return items[:5]
+                snippet = re.sub(
+                    r"\\s+", " ",
+                    re.sub(r"<[^>]+>", " ", str(item.get("snippet") or ""))
+                ).strip()
+                if title and page_id:
+                    items.append({
+                        "title": title[:240],
+                        "href": "https://en.wikipedia.org/?curid=" + str(page_id),
+                        "body": snippet[:700],
+                    })
+            add_candidates(items)
         except Exception as exc:
             failures.append("wikipedia:" + type(exc).__name__)
-    print("Aarohi web search failed across sources: " + ", ".join(failures or ["no relevant results"]))
-    return []
 
+    # Deduplicate by URL, rank by topical match, and return actual article links.
+    unique = {}
+    for item in collected:
+        url = str(item.get("href") or item.get("url") or "").strip()
+        if url not in unique or item.get("_relevance", 0) > unique[url].get("_relevance", 0):
+            unique[url] = item
+    ranked = sorted(
+        unique.values(),
+        key=lambda item: (item.get("_relevance", 0), str(item.get("title") or "")),
+        reverse=True,
+    )
+    if not ranked:
+        print("Aarohi web search found no relevant articles; sources: " + ", ".join(failures or ["no matching articles"]))
+    return [{key: value for key, value in item.items() if key != "_relevance"} for item in ranked[:5]]
 
 @app.post("/api/research")
 async def research(payload: ResearchRequest, request: Request):
