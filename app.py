@@ -5,6 +5,8 @@ import asyncio
 import socket
 import ipaddress
 import re
+from datetime import datetime, timezone, timedelta
+from email.utils import parsedate_to_datetime
 import httpx
 import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
@@ -294,7 +296,7 @@ def fetch_public_website(raw_url: str):
     current_url = raw_url if "://" in raw_url else "https://" + raw_url
     headers = {"User-Agent": "Mozilla/5.0 (compatible; AarohiReader/1.0)"}
     chunks, total, encoding = [], 0, "utf-8"
-    with httpx.Client(timeout=httpx.Timeout(10.0), follow_redirects=False, headers=headers) as client:
+    with httpx.Client(timeout=httpx.Timeout(5.0), follow_redirects=False, headers=headers) as client:
         for hop in range(6):
             _validate_public_http_url(current_url)
             with client.stream("GET", current_url) as response:
@@ -336,7 +338,7 @@ def fetch_wikipedia_article(raw_url: str):
     # Wikimedia REST summary endpoint is often available even when the HTML page is blocked.
     try:
         rest_url = "https://en.wikipedia.org/api/rest_v1/page/summary/" + __import__("urllib.parse", fromlist=["quote"]).quote(title, safe="")
-        response = httpx.get(rest_url, timeout=httpx.Timeout(12.0), follow_redirects=True, headers=headers)
+        response = httpx.get(rest_url, timeout=httpx.Timeout(7.0), follow_redirects=True, headers=headers)
         response.raise_for_status()
         data = response.json()
         extract = re.sub(r"\s+", " ", str(data.get("extract") or "")).strip()
@@ -380,6 +382,11 @@ def _search_terms(query: str):
         "last", "days", "day", "past", "within", "over", "ago", "month",
         "months", "week", "weeks", "involving", "involve", "during", "between",
         "stories", "story", "source", "sources", "link", "links", "date", "dates", "30", "7", "14",
+        "publication", "published", "mujhe", "aapko", "aap", "pichhle", "pichle", "pichhali", "pichli", "din", "dino", "dinon",
+        "ki", "ka", "ke", "aur", "se", "mein", "me", "hai", "hain", "kya", "kuch", "sahi",
+        "chahiye", "hona", "honi", "hoga", "hogi", "wale", "wali", "wala", "waale", "sirf",
+        "purani", "purane", "nayi", "naye", "aaj", "abhi", "taaza", "khabar", "khabrein",
+        "samachar", "tareekh", "tarikh", "mahine", "maheene", "hafton", "hafte", "pichhle",
     }
     terms = [word.lower() for word in re.findall(r"[A-Za-z0-9]+", query) if len(word) >= 2 and not word.isdigit()]
     return [word for word in terms if word not in ignored]
@@ -432,29 +439,91 @@ def _valid_search_item(item, query):
     required = min(2, len(terms))
     return _search_match_score(item, query) >= required
 
+def _parse_search_date(raw_value):
+    """Parse common DDGS, GDELT, RSS and ISO publication timestamps as UTC."""
+    value = str(raw_value or "").strip()
+    if not value:
+        return None
+    now = datetime.now(timezone.utc)
+    relative = re.search(r"\b(\d+)\s+(minute|hour|day|week)s?\s+ago\b", value, re.I)
+    if relative:
+        amount = int(relative.group(1))
+        unit = relative.group(2).lower()
+        delta = {"minute": timedelta(minutes=amount), "hour": timedelta(hours=amount),
+                 "day": timedelta(days=amount), "week": timedelta(weeks=amount)}[unit]
+        return now - delta
+    if re.search(r"\byesterday\b", value, re.I):
+        return now - timedelta(days=1)
+    if re.search(r"\btoday\b", value, re.I):
+        return now
+    gdelt = re.search(r"\b(\d{8})T(\d{6})Z?\b", value)
+    if gdelt:
+        try:
+            return datetime.strptime(gdelt.group(1) + gdelt.group(2), "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+    except ValueError:
+        pass
+    try:
+        parsed = parsedate_to_datetime(value)
+        return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _is_recent_article(published_at, now=None, days=30):
+    if published_at is None:
+        return False
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    return now - timedelta(days=days) <= published_at <= now + timedelta(minutes=5)
+
+
 def run_web_search(query: str):
     # Use several public, no-key article sources and never fall back to generic portals.
     failures = []
     terms = _search_terms(query)
     cleaned_query = " ".join(terms) or query
-    is_latest = bool(re.search(r"\b(latest|today|current|recent|news|updates?|this week|this month)\b", query, re.I))
+    is_latest = bool(re.search(r"\b(latest|today|current|recent|news|updates?|this week|this month|last\s+\d+\s+days?|past\s+\d+\s+days?)\b", query, re.I))
     collected = []
+    provider_stats = defaultdict(lambda: {"received": 0, "accepted": 0, "rejected": 0, "undated": 0, "outside_window": 0})
 
-    def add_candidates(items):
+    def add_candidates(items, provider):
+        stats = provider_stats[provider]
         for item in items:
+            stats["received"] += 1
             if not _valid_search_item(item, query):
+                stats["rejected"] += 1
                 continue
             url = str(item.get("href") or item.get("url") or "").strip()
             if not url:
+                stats["rejected"] += 1
                 continue
+            raw_date = item.get("published_at") or item.get("date")
+            published = _parse_search_date(raw_date)
+            if is_latest and published is None:
+                stats["undated"] += 1
+                continue
+            if is_latest and not _is_recent_article(published):
+                stats["outside_window"] += 1
+                continue
+            if published is not None:
+                item["published_at"] = published.isoformat()
+                item["_published_dt"] = published
+            item["source_provider"] = provider
             item["_relevance"] = _search_match_score(item, query)
+            stats["accepted"] += 1
             collected.append(item)
 
     # DDGS exposes a dedicated news endpoint with dates. Use its month filter
     # for current-news requests; use text search for evergreen research.
     try:
         from ddgs import DDGS
-        ddgs = DDGS(timeout=10)
+        ddgs = DDGS(timeout=6)
         if is_latest:
             news_items = list(ddgs.news(cleaned_query, timelimit="m", max_results=15))
             normalized = []
@@ -463,10 +532,11 @@ def run_web_search(query: str):
                     "title": str(item.get("title") or "")[:240],
                     "href": str(item.get("url") or item.get("href") or ""),
                     "body": " · ".join(str(item.get(key) or "") for key in ("date", "source", "body"))[:700],
+                    "published_at": item.get("date") or "",
                 })
-            add_candidates(normalized)
+            add_candidates(normalized, "ddgs")
         else:
-            add_candidates(list(ddgs.text(cleaned_query, max_results=15)))
+            add_candidates(list(ddgs.text(cleaned_query, max_results=15)), "ddgs")
     except Exception as exc:
         failures.append("ddgs:" + type(exc).__name__)
 
@@ -496,8 +566,8 @@ def run_web_search(query: str):
             url = str(item.get("url") or "").strip()
             seen = str(item.get("seendate") or "")
             snippet = seen + ((" · " + str(item.get("domain") or "")) if item.get("domain") else "")
-            items.append({"title": title[:240], "href": url, "body": snippet[:700]})
-        add_candidates(items)
+            items.append({"title": title[:240], "href": url, "body": snippet[:700], "published_at": seen})
+        add_candidates(items, "gdelt")
     except Exception as exc:
         failures.append("gdelt:" + type(exc).__name__)
 
@@ -540,10 +610,11 @@ def run_web_search(query: str):
                 pubdate = fields.get("pubdate") or fields.get("published") or fields.get("updated") or ""
                 snippet = (pubdate + " · " + description).strip(" ·")
                 if title and link:
-                    items.append({"title": title[:240], "href": link, "body": snippet[:700]})
+                    items.append({"title": title[:240], "href": link, "body": snippet[:700], "published_at": pubdate})
+            provider = urlparse(feed_url).hostname or "rss"
             if not items:
-                failures.append((urlparse(feed_url).hostname or "rss") + ":NoFeedItems")
-            add_candidates(items)
+                failures.append(provider + ":NoFeedItems")
+            add_candidates(items, provider)
         except Exception as exc:
             failures.append((urlparse(feed_url).hostname or "rss") + ":" + type(exc).__name__)
 
@@ -575,7 +646,7 @@ def run_web_search(query: str):
                         "href": "https://en.wikipedia.org/?curid=" + str(page_id),
                         "body": snippet[:700],
                     })
-            add_candidates(items)
+            add_candidates(items, "wikipedia")
         except Exception as exc:
             failures.append("wikipedia:" + type(exc).__name__)
 
@@ -587,14 +658,18 @@ def run_web_search(query: str):
             unique[url] = item
     ranked = sorted(
         unique.values(),
-        key=lambda item: (item.get("_relevance", 0), str(item.get("title") or "")),
+        key=lambda item: (item.get("_relevance", 0), item.get("_published_dt") or datetime.min.replace(tzinfo=timezone.utc), str(item.get("title") or "")),
         reverse=True,
     )
-    if not ranked:
-        print("Aarohi web search found no relevant articles; query_terms=" + repr(terms) + "; sources: " + ", ".join(failures or ["no matching articles"]))
-    else:
-        print("Aarohi web search returned " + str(len(ranked)) + " relevant articles from " + str(len(collected)) + " candidates.")
-    return [{key: value for key, value in item.items() if key != "_relevance"} for item in ranked[:5]]
+    diagnostics = "; ".join(
+        provider + "=" + str(stats["accepted"]) + "/" + str(stats["received"]) +
+        " accepted, " + str(stats["undated"]) + " undated, " + str(stats["outside_window"]) + " outside 30d"
+        for provider, stats in sorted(provider_stats.items())
+    )
+    print("Aarohi search diagnostics: " + (diagnostics or "no provider candidates") +
+          "; failures=" + (", ".join(failures) if failures else "none") +
+          "; results=" + str(len(ranked)))
+    return [{key: value for key, value in item.items() if key not in ("_relevance", "_published_dt")} for item in ranked[:5]]
 @app.post("/api/research")
 async def research(payload: ResearchRequest, request: Request):
     require_access(request)
@@ -607,7 +682,9 @@ async def research(payload: ResearchRequest, request: Request):
             title = str(item.get("title") or "")[:240]
             snippet = str(item.get("body") or item.get("snippet") or "")[:700]
             if url.startswith(("https://", "http://")) and title:
-                cleaned.append({"title": title, "url": url, "snippet": snippet})
+                cleaned.append({"title": title, "url": url, "snippet": snippet,
+                                "published_at": item.get("published_at"),
+                                "source_provider": item.get("source_provider")})
         return {"query": payload.query, "results": cleaned}
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Web search took too long. Try a shorter or more specific query.")
@@ -706,7 +783,9 @@ async def run_agent(payload: AgentRequest, request: Request):
         try:
             found = await asyncio.wait_for(asyncio.to_thread(run_web_search, task), timeout=30)
             cleaned = [
-                {"title": str(x.get("title") or "")[:180], "url": str(x.get("href") or x.get("url") or ""), "snippet": str(x.get("body") or "")[:500]}
+                {"title": str(x.get("title") or "")[:180], "url": str(x.get("href") or x.get("url") or ""),
+                 "snippet": str(x.get("body") or "")[:500], "published_at": x.get("published_at"),
+                 "source_provider": x.get("source_provider")}
                 for x in found[:5] if str(x.get("href") or x.get("url") or "").startswith(("https://", "http://"))
             ]
             tool_results.append({"tool": "web_search", "results": cleaned} if cleaned else {"tool": "web_search", "error": "No useful search results were returned."})
@@ -719,6 +798,9 @@ async def run_agent(payload: AgentRequest, request: Request):
         "Available tools in this beta: safe calculator, public webpage reader, and web search. A task may use more than one tool in sequence. Never claim to have used a tool if no result is supplied. If the user asks what is remembered, report the actual saved memory accurately. "
         "If no tool was needed, answer normally. If search results or webpage content are supplied, summarize only that evidence and cite its URL inline as a plain link. If a tool fails, state the limitation clearly; never guess from a URL name. "
         "Never execute code, access accounts, send messages, purchase items, or change external systems. "
+        "Current server date/time (UTC): " + datetime.now(timezone.utc).isoformat() + ". "
+        "For latest-news requests, use only results whose published_at timestamp was verified by the server. "
+        "Never describe a past date as future; compare publication dates with the current server date. "
         "Be concise and answer in the user's language." + ("\n\nUser-approved saved memory (use only when relevant):\n" + payload.memory if payload.memory.strip() else "")
     )
     search_result = next((item for item in tool_results if item.get("tool") == "web_search"), None)
