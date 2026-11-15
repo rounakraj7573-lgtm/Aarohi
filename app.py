@@ -382,7 +382,7 @@ def _search_terms(query: str):
         "last", "days", "day", "past", "within", "over", "ago", "month",
         "months", "week", "weeks", "involving", "involve", "during", "between",
         "stories", "story", "source", "sources", "link", "links", "date", "dates", "30", "7", "14",
-        "publication", "published", "pichhle", "pichle", "pichhali", "pichli", "din", "dino", "dinon",
+        "publication", "published", "mujhe", "aapko", "aap", "pichhle", "pichle", "pichhali", "pichli", "din", "dino", "dinon",
         "ki", "ka", "ke", "aur", "se", "mein", "me", "hai", "hain", "kya", "kuch", "sahi",
         "chahiye", "hona", "honi", "hoga", "hogi", "wale", "wali", "wala", "waale", "sirf",
         "purani", "purane", "nayi", "naye", "aaj", "abhi", "taaza", "khabar", "khabrein",
