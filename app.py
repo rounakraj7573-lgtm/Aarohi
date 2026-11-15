@@ -430,6 +430,9 @@ def _valid_search_item(item, query):
     blocked = ("google.com", "bing.com", "yahoo.com", "duckduckgo.com", "search.yahoo")
     if any(host == domain or host.endswith("." + domain) for domain in blocked):
         return False
+    # Reject evergreen travel/history pages for current-news searches.
+    if re.search(r"\\b(travel guide|travel tips|things to do|best places to visit|history of|tourism guide|visitor guide|top attractions)\\b", title, re.I):
+        return False
     terms = _search_terms(query)
     if not terms:
         return True
@@ -483,7 +486,8 @@ def _is_recent_article(published_at, now=None, days=30):
     return now - timedelta(days=days) <= published_at <= now + timedelta(minutes=5)
 
 
-def run_web_search(query: str):
+def _run_web_search_single(query: str):
+    # Search one topic/country at a time to avoid multi-country relevance dilution.
     # Use several public, no-key article sources and never fall back to generic portals.
     failures = []
     terms = _search_terms(query)
@@ -670,6 +674,51 @@ def run_web_search(query: str):
           "; failures=" + (", ".join(failures) if failures else "none") +
           "; results=" + str(len(ranked)))
     return [{key: value for key, value in item.items() if key not in ("_relevance", "_published_dt")} for item in ranked[:5]]
+# Split explicit multi-country requests so each country gets an independent search.
+_COUNTRY_QUERY_NAMES = (
+    "Japan", "Brazil", "India", "China", "United States", "USA", "United Kingdom", "UK",
+    "France", "Germany", "Italy", "Spain", "Canada", "Australia", "New Zealand", "Mexico",
+    "South Korea", "Korea", "North Korea", "Taiwan", "Indonesia", "Philippines", "Thailand",
+    "Vietnam", "Pakistan", "Bangladesh", "Nepal", "Sri Lanka", "Russia", "Ukraine",
+    "Israel", "Palestine", "Iran", "Iraq", "Saudi Arabia", "United Arab Emirates", "UAE",
+    "Turkey", "Türkiye", "Egypt", "South Africa", "Nigeria", "Kenya", "Ethiopia",
+    "Argentina", "Chile", "Colombia", "Peru", "Venezuela", "Sweden", "Norway", "Finland",
+    "Denmark", "Netherlands", "Belgium", "Switzerland", "Poland", "Greece", "Portugal",
+    "Ireland", "Czech Republic", "Czechia", "Romania", "Hungary", "Serbia", "Croatia",
+    "Singapore", "Malaysia", "Myanmar", "Cambodia", "Mongolia", "Afghanistan", "Qatar",
+    "Kuwait", "Morocco", "Algeria", "Tunisia", "Ghana", "Tanzania", "Uganda",
+)
+def _split_country_queries(query: str):
+    found = []
+    for name in _COUNTRY_QUERY_NAMES:
+        if re.search(r"(?<![A-Za-z])" + re.escape(name) + r"(?![A-Za-z])", query, re.I):
+            if name.lower() not in {x.lower() for x in found}:
+                found.append(name)
+    if len(found) < 2:
+        return [query]
+    # Retain the user's news/time/topic wording, but isolate each named country.
+    common = re.sub(r"(?i)\\b(?:" + "|".join(re.escape(x) for x in sorted(found, key=len, reverse=True)) + r")\\b", " ", query)
+    common = re.sub(r"(?i)\\b(and|or|&|,|in|for|from|about)\\b", " ", common)
+    common = re.sub(r"\\s+", " ", common).strip(" ,.")
+    return [name + " " + common for name in found]
+
+def run_web_search(query: str):
+    queries = _split_country_queries(query)
+    if len(queries) == 1:
+        return _run_web_search_single(query)
+    merged = {}
+    for country_query in queries:
+        for item in _run_web_search_single(country_query):
+            url = str(item.get("href") or item.get("url") or "")
+            if url:
+                merged[url] = item
+    return sorted(
+        merged.values(),
+        key=lambda item: (_parse_search_date(item.get("published_at")) or datetime.min.replace(tzinfo=timezone.utc)),
+        reverse=True,
+    )[:10]
+
+
 @app.post("/api/research")
 async def research(payload: ResearchRequest, request: Request):
     require_access(request)
