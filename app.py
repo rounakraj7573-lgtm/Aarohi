@@ -296,7 +296,7 @@ def fetch_public_website(raw_url: str):
     current_url = raw_url if "://" in raw_url else "https://" + raw_url
     headers = {"User-Agent": "Mozilla/5.0 (compatible; AarohiReader/1.0)"}
     chunks, total, encoding = [], 0, "utf-8"
-    with httpx.Client(timeout=httpx.Timeout(10.0), follow_redirects=False, headers=headers) as client:
+    with httpx.Client(timeout=httpx.Timeout(5.0), follow_redirects=False, headers=headers) as client:
         for hop in range(6):
             _validate_public_http_url(current_url)
             with client.stream("GET", current_url) as response:
@@ -338,7 +338,7 @@ def fetch_wikipedia_article(raw_url: str):
     # Wikimedia REST summary endpoint is often available even when the HTML page is blocked.
     try:
         rest_url = "https://en.wikipedia.org/api/rest_v1/page/summary/" + __import__("urllib.parse", fromlist=["quote"]).quote(title, safe="")
-        response = httpx.get(rest_url, timeout=httpx.Timeout(12.0), follow_redirects=True, headers=headers)
+        response = httpx.get(rest_url, timeout=httpx.Timeout(7.0), follow_redirects=True, headers=headers)
         response.raise_for_status()
         data = response.json()
         extract = re.sub(r"\s+", " ", str(data.get("extract") or "")).strip()
@@ -503,7 +503,7 @@ def run_web_search(query: str):
             if not url:
                 stats["rejected"] += 1
                 continue
-            raw_date = item.get("published_at") or item.get("date") or item.get("seendate")
+            raw_date = item.get("published_at") or item.get("date")
             published = _parse_search_date(raw_date)
             if is_latest and published is None:
                 stats["undated"] += 1
@@ -523,7 +523,7 @@ def run_web_search(query: str):
     # for current-news requests; use text search for evergreen research.
     try:
         from ddgs import DDGS
-        ddgs = DDGS(timeout=10)
+        ddgs = DDGS(timeout=6)
         if is_latest:
             news_items = list(ddgs.news(cleaned_query, timelimit="m", max_results=15))
             normalized = []
