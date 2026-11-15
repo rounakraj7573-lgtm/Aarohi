@@ -706,17 +706,23 @@ def run_web_search(query: str):
     queries = _split_country_queries(query)
     if len(queries) == 1:
         return _run_web_search_single(query)
-    merged = {}
+    # Interleave independently searched country groups so one country
+    # cannot crowd the other out of the agent's five-result response.
+    groups = []
     for country_query in queries:
-        for item in _run_web_search_single(country_query):
-            url = str(item.get("href") or item.get("url") or "")
-            if url:
-                merged[url] = item
-    return sorted(
-        merged.values(),
-        key=lambda item: (_parse_search_date(item.get("published_at")) or datetime.min.replace(tzinfo=timezone.utc)),
-        reverse=True,
-    )[:10]
+        group = _run_web_search_single(country_query)
+        group.sort(key=lambda item: _parse_search_date(item.get('published_at')) or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+        groups.append(group)
+    output, seen = [], set()
+    for index in range(max((len(group) for group in groups), default=0)):
+        for group in groups:
+            if index < len(group):
+                item = group[index]
+                url = str(item.get('href') or item.get('url') or '')
+                if url and url not in seen:
+                    seen.add(url)
+                    output.append(item)
+    return output[:10]
 
 
 @app.post("/api/research")
