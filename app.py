@@ -2,6 +2,7 @@ import os
 import time
 import hmac
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import socket
 import ipaddress
 import re
@@ -559,7 +560,7 @@ def _run_web_search_single(query: str):
         response = httpx.get(
             "https://api.gdeltproject.org/api/v2/doc/doc",
             params=params,
-            timeout=httpx.Timeout(12.0),
+            timeout=httpx.Timeout(4.0),
             follow_redirects=True,
             headers={"User-Agent": "AarohiResearch/1.0"},
         )
@@ -590,7 +591,7 @@ def _run_web_search_single(query: str):
             response = httpx.get(
                 feed_url,
                 params=params,
-                timeout=httpx.Timeout(10.0),
+                timeout=httpx.Timeout(6.0),
                 follow_redirects=True,
                 headers={"User-Agent": "Mozilla/5.0 (compatible; AarohiResearch/1.0)"},
             )
@@ -697,9 +698,9 @@ def _split_country_queries(query: str):
     if len(found) < 2:
         return [query]
     # Retain the user's news/time/topic wording, but isolate each named country.
-    common = re.sub(r"(?i)\\b(?:" + "|".join(re.escape(x) for x in sorted(found, key=len, reverse=True)) + r")\\b", " ", query)
-    common = re.sub(r"(?i)\\b(and|or|&|,|in|for|from|about)\\b", " ", common)
-    common = re.sub(r"\\s+", " ", common).strip(" ,.")
+    common = re.sub(r"(?i)\b(?:" + "|".join(re.escape(x) for x in sorted(found, key=len, reverse=True)) + r")\b", " ", query)
+    common = re.sub(r"(?i)\b(and|or|&|,|in|for|from|about)\b", " ", common)
+    common = re.sub(r"\s+", " ", common).strip(" ,.")
     return [name + " " + common for name in found]
 
 def run_web_search(query: str):
@@ -708,11 +709,12 @@ def run_web_search(query: str):
         return _run_web_search_single(query)
     # Interleave independently searched country groups so one country
     # cannot crowd the other out of the agent's five-result response.
-    groups = []
-    for country_query in queries:
-        group = _run_web_search_single(country_query)
+    # Search countries concurrently; serial provider timeouts could exceed the
+    # agent's request deadline even when useful results were already found.
+    with ThreadPoolExecutor(max_workers=min(len(queries), 4)) as pool:
+        groups = list(pool.map(_run_web_search_single, queries))
+    for group in groups:
         group.sort(key=lambda item: _parse_search_date(item.get('published_at')) or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
-        groups.append(group)
     output, seen = [], set()
     for index in range(max((len(group) for group in groups), default=0)):
         for group in groups:
