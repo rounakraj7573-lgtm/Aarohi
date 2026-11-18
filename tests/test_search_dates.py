@@ -35,3 +35,35 @@ def test_hinglish_stopwords_leave_topic_terms():
         "Mujhe pichhle 30 din ki Philippines typhoon response news articles chahiye"
     )
     assert terms == ["philippines", "typhoon", "response"]
+
+ 
+def test_country_news_query_uses_country_as_single_required_topic():
+    from app import _valid_search_item, _search_terms
+
+    query = "Japan pichle 30 din ki koi bhi verified recent news original source link"
+    assert _search_terms(query) == ["japan"]
+    assert _valid_search_item({
+        "title": "Japan announces new economic measures",
+        "href": "https://example.org/japan-news",
+        "body": "Published today",
+    }, query)
+
+
+def test_reject_evergreen_travel_guides():
+    from app import _valid_search_item
+
+    assert not _valid_search_item({
+        "title": "Japan travel guide: best places to visit",
+        "href": "https://example.org/japan-guide",
+        "body": "Japan tourism and attractions",
+    }, "Japan recent news")
+
+
+def test_accept_current_country_article_with_one_country_match():
+    from app import _valid_search_item
+
+    assert _valid_search_item({
+        "title": "Brazil central bank announces policy decision",
+        "href": "https://example.org/brazil-policy",
+        "body": "Published November 18, 2026",
+    }, "Brazil recent news")
