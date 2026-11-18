@@ -489,13 +489,23 @@ def _is_recent_article(published_at, now=None, days=30):
     return now - timedelta(days=days) <= published_at <= now + timedelta(minutes=5)
 
 
+def _is_latest_query(query: str) -> bool:
+    return bool(re.search(
+        r"\\b(latest|today|current|recent|news|updates?|this week|this month|last\\s+\\d+\\s+days?|past\\s+\\d+\\s+days?|"
+        r"pichhle?\\s*\\d*\\s*(din|dino|days?|mahine|maheene|hafton|hafte|weeks?)|"
+        r"pichli\\s*\\d*\\s*(din|dino|days?|mahine|maheene|hafton|hafte|weeks?)|"
+        r"aaj|abhi|taaza|khabar|khabrein|samachar)\\b",
+        query, re.I
+    ))
+
+
 def _run_web_search_single(query: str):
     # Search one topic/country at a time to avoid multi-country relevance dilution.
     # Use several public, no-key article sources and never fall back to generic portals.
     failures = []
     terms = _search_terms(query)
     cleaned_query = " ".join(terms) or query
-    is_latest = bool(re.search(r"\b(latest|today|current|recent|news|updates?|this week|this month|last\s+\d+\s+days?|past\s+\d+\s+days?)\b", query, re.I))
+    is_latest = _is_latest_query(query)
     collected = []
     provider_stats = defaultdict(lambda: {"received": 0, "accepted": 0, "rejected": 0, "undated": 0, "outside_window": 0})
 
