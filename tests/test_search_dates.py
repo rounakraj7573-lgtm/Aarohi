@@ -36,7 +36,7 @@ def test_hinglish_stopwords_leave_topic_terms():
     )
     assert terms == ["philippines", "typhoon", "response"]
 
- 
+
 def test_country_news_query_uses_country_as_single_required_topic():
     from app import _valid_search_item, _search_terms
 
