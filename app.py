@@ -388,7 +388,7 @@ def _search_terms(query: str):
         "chahiye", "hona", "honi", "hoga", "hogi", "wale", "wali", "wala", "waale", "sirf",
         "purani", "purane", "nayi", "naye", "aaj", "abhi", "taaza", "khabar", "khabrein",
         "samachar", "tareekh", "tarikh", "mahine", "maheene", "hafton", "hafte", "pichhle",
-        "koi", "bhi", "har", "verified", "verify", "original", "aura", "aour", "aaur",
+        "koi", "bhi", "har", "pichle", "verified", "verify", "original", "aura", "aour", "aaur",
         "teen", "tin", "news", "do", "dena", "mili", "mujhe", "kisi", "batao",
     }
     terms = [word.lower() for word in re.findall(r"[A-Za-z0-9]+", query) if len(word) >= 2 and not word.isdigit()]
