@@ -67,3 +67,13 @@ def test_accept_current_country_article_with_one_country_match():
         "href": "https://example.org/brazil-policy",
         "body": "Published November 18, 2026",
     }, "Brazil recent news")
+
+
+def test_hinglish_time_phrases_trigger_recent_news_mode():
+    from app import _is_latest_query
+
+    assert _is_latest_query("Japan pichhle 30 din ki recent news")
+    assert _is_latest_query("Brazil pichle 30 din ki khabrein")
+    assert _is_latest_query("India aaj ki taaza news")
+    assert _is_latest_query("Japan latest news")
+    assert not _is_latest_query("Japan history and culture")
