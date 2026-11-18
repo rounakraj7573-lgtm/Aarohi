@@ -388,6 +388,8 @@ def _search_terms(query: str):
         "chahiye", "hona", "honi", "hoga", "hogi", "wale", "wali", "wala", "waale", "sirf",
         "purani", "purane", "nayi", "naye", "aaj", "abhi", "taaza", "khabar", "khabrein",
         "samachar", "tareekh", "tarikh", "mahine", "maheene", "hafton", "hafte", "pichhle",
+        "koi", "bhi", "har", "verified", "verify", "original", "aura", "aour", "aaur",
+        "teen", "tin", "news", "do", "dena", "mili", "mujhe", "kisi", "batao",
     }
     terms = [word.lower() for word in re.findall(r"[A-Za-z0-9]+", query) if len(word) >= 2 and not word.isdigit()]
     return [word for word in terms if word not in ignored]
@@ -432,7 +434,7 @@ def _valid_search_item(item, query):
     if any(host == domain or host.endswith("." + domain) for domain in blocked):
         return False
     # Reject evergreen travel/history pages for current-news searches.
-    if re.search(r"\\b(travel guide|travel tips|things to do|best places to visit|history of|tourism guide|visitor guide|top attractions)\\b", title, re.I):
+    if re.search(r"\b(travel guide|travel tips|things to do|best places to visit|history of|tourism guide|visitor guide|top attractions)\b", title, re.I):
         return False
     terms = _search_terms(query)
     if not terms:
