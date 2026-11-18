@@ -492,7 +492,7 @@ def _is_recent_article(published_at, now=None, days=30):
 def _is_latest_query(query: str) -> bool:
     return bool(re.search(
         r"\\b(latest|today|current|recent|news|updates?|this week|this month|last\\s+\\d+\\s+days?|past\\s+\\d+\\s+days?|"
-        r"pichhle?\\s*\\d*\\s*(din|dino|days?|mahine|maheene|hafton|hafte|weeks?)|"
+        r"pichh?le?\\s*\\d*\\s*(din|dino|days?|mahine|maheene|hafton|hafte|weeks?)|"
         r"pichli\\s*\\d*\\s*(din|dino|days?|mahine|maheene|hafton|hafte|weeks?)|"
         r"aaj|abhi|taaza|khabar|khabrein|samachar)\\b",
         query, re.I
