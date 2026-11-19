@@ -480,6 +480,25 @@ def _parse_search_date(raw_value):
         return None
 
 
+def _requested_news_window_days(query: str, default_days: int = 30) -> int:
+    # Respect explicit windows (English + common Hindi/Hinglish forms).
+    text = str(query or "").lower()
+    patterns = (
+        r"\b(?:last|past|previous)\s+(\d+)\s+days?\b",
+        r"\b(?:pichh?le|pichli|pichhle|pichle)\s*(\d+)\s*(?:din|dino|dinon|days?)\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text, re.I)
+        if match:
+            try:
+                return max(1, min(90, int(match.group(1))))
+            except ValueError:
+                pass
+    if re.search(r"\b(?:this week|last week|past week|pichhle haft|pichle haft)\b", text, re.I):
+        return 7
+    return max(1, min(90, default_days))
+
+
 def _is_recent_article(published_at, now=None, days=30):
     if published_at is None:
         return False
@@ -508,6 +527,7 @@ def _run_web_search_single(query: str):
     terms = _search_terms(query)
     cleaned_query = " ".join(terms) or query
     is_latest = _is_latest_query(query)
+    news_window_days = _requested_news_window_days(query)
     collected = []
     provider_stats = defaultdict(lambda: {"received": 0, "accepted": 0, "rejected": 0, "undated": 0, "outside_window": 0})
 
@@ -527,7 +547,7 @@ def _run_web_search_single(query: str):
             if is_latest and published is None:
                 stats["undated"] += 1
                 continue
-            if is_latest and not _is_recent_article(published):
+            if is_latest and not _is_recent_article(published, days=news_window_days):
                 stats["outside_window"] += 1
                 continue
             if published is not None:
