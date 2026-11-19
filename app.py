@@ -750,10 +750,10 @@ def _split_country_queries(query: str):
 
 def _is_broad_world_news_query(query: str) -> bool:
     text = str(query or "").lower()
-    broad = bool(re.search(r"\\b(worldwide|world|global|international|around the world|duniya bhar|duniya|globally)\\b", text))
-    news_intent = bool(re.search(r"\\b(news|latest|recent|important|updates?|khabar|khabrein|samachar)\\b", text))
+    broad = bool(re.search(r"\b(worldwide|world|global|international|around the world|duniya bhar|duniya|globally)\b", text))
+    news_intent = bool(re.search(r"\b(news|latest|recent|important|updates?|khabar|khabrein|samachar)\b", text))
     # Queries explicitly about a narrow named subject should remain single-search.
-    narrow = bool(re.search(r"\\b(artemis|nasa|iphone|tesla|bitcoin|election campaign)\\b", text))
+    narrow = bool(re.search(r"\b(artemis|nasa|iphone|tesla|bitcoin|election campaign)\b", text))
     return broad and news_intent and not narrow
 
 
