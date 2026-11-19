@@ -748,7 +748,34 @@ def _split_country_queries(query: str):
     common = re.sub(r"\s+", " ", common).strip(" ,.")
     return [name + " " + common for name in found]
 
+def _is_broad_world_news_query(query: str) -> bool:
+    text = str(query or "").lower()
+    broad = bool(re.search(r"\\b(worldwide|world|global|international|around the world|duniya bhar|duniya|globally)\\b", text))
+    news_intent = bool(re.search(r"\\b(news|latest|recent|important|updates?|khabar|khabrein|samachar)\\b", text))
+    # Queries explicitly about a narrow named subject should remain single-search.
+    narrow = bool(re.search(r"\\b(artemis|nasa|iphone|tesla|bitcoin|election campaign)\\b", text))
+    return broad and news_intent and not narrow
+
+
 def run_web_search(query: str):
+    if _is_broad_world_news_query(query):
+        days = _requested_news_window_days(query)
+        topics = ("politics", "economy", "science", "technology", "environment", "sports")
+        subqueries = [topic + " news last " + str(days) + " days" for topic in topics]
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            groups = list(pool.map(_run_web_search_single, subqueries))
+        output, seen = [], set()
+        # Interleave topic results to preserve breadth; deduplicate URL.
+        for index in range(max((len(group) for group in groups), default=0)):
+            for group in groups:
+                if index < len(group):
+                    item = group[index]
+                    url = str(item.get("href") or item.get("url") or "")
+                    if url and url not in seen:
+                        seen.add(url)
+                        output.append(item)
+        return output[:10]
+    queries = _split_country_queries(query)
     queries = _split_country_queries(query)
     if len(queries) == 1:
         return _run_web_search_single(query)
@@ -888,7 +915,7 @@ async def run_agent(payload: AgentRequest, request: Request):
                 {"title": str(x.get("title") or "")[:180], "url": str(x.get("href") or x.get("url") or ""),
                  "snippet": str(x.get("body") or "")[:500], "published_at": x.get("published_at"),
                  "source_provider": x.get("source_provider")}
-                for x in found[:5] if str(x.get("href") or x.get("url") or "").startswith(("https://", "http://"))
+                for x in found[:10] if str(x.get("href") or x.get("url") or "").startswith(("https://", "http://"))
             ]
             tool_results.append({"tool": "web_search", "results": cleaned} if cleaned else {"tool": "web_search", "error": "No useful search results were returned."})
         except Exception as exc:
