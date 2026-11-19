@@ -592,10 +592,21 @@ def _run_web_search_single(query: str):
 
     # RSS article feeds are a no-key fallback with international coverage.
     rss_query = cleaned_query + (" when:30d" if is_latest else "")
+    # Global coverage: search results across multiple Google News editions.
+    # These are parallel sources for the same query, not country/topic restrictions.
     feeds = [
         ("https://www.bing.com/search", {"format": "rss", "q": rss_query}),
         ("https://news.google.com/rss/search", {
+            "q": rss_query, "hl": "en-US", "gl": "US", "ceid": "US:en"
+        }),
+        ("https://news.google.com/rss/search", {
+            "q": rss_query, "hl": "en-GB", "gl": "GB", "ceid": "GB:en"
+        }),
+        ("https://news.google.com/rss/search", {
             "q": rss_query, "hl": "en-IN", "gl": "IN", "ceid": "IN:en"
+        }),
+        ("https://news.google.com/rss/search", {
+            "q": rss_query, "hl": "en-001", "gl": "US", "ceid": "US:en"
         }),
     ]
     if re.search(r"\bNASA\b|\bArtemis\b", query, re.I):
@@ -605,7 +616,7 @@ def _run_web_search_single(query: str):
             response = httpx.get(
                 feed_url,
                 params=params,
-                timeout=httpx.Timeout(6.0),
+                timeout=httpx.Timeout(4.0),
                 follow_redirects=True,
                 headers={"User-Agent": "Mozilla/5.0 (compatible; AarohiResearch/1.0)"},
             )
