@@ -429,19 +429,29 @@ def _valid_search_item(item, query):
     url = str(item.get("href") or item.get("url") or "").strip()
     if not title or not url.startswith(("https://", "http://")):
         return False
-    host = (urlparse(url).hostname or "").lower()
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
     blocked = ("google.com", "bing.com", "yahoo.com", "duckduckgo.com", "search.yahoo")
     if any(host == domain or host.endswith("." + domain) for domain in blocked):
         return False
+    # For current-news requests, reject publisher homepages and category pages:
+    # only specific article URLs are eligible (prevents MSN /sports landing pages).
+    if _is_latest_query(query):
+        path = [part for part in parsed.path.strip("/").split("/") if part]
+        if not path:
+            return False
+        generic_path = {"news", "world", "sports", "sport", "technology", "tech", "business",
+                       "science", "health", "politics", "latest", "articles", "topics", "category"}
+        if len(path) == 1 and (path[0].lower() in generic_path or len(path[0]) < 18):
+            return False
+        if len(path) > 1 and path[-1].lower() in generic_path:
+            return False
     # Reject evergreen travel/history pages for current-news searches.
     if re.search(r"\b(travel guide|travel tips|things to do|best places to visit|history of|tourism guide|visitor guide|top attractions)\b", title, re.I):
         return False
     terms = _search_terms(query)
     if not terms:
         return True
-    # Require at least two independent topic matches for multi-word queries.
-    # This prevents a generic article mentioning only a country or broad category
-    # from being presented as a relevant result.
     required = min(2, len(terms))
     return _search_match_score(item, query) >= required
 
