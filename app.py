@@ -842,6 +842,26 @@ async def research(payload: ResearchRequest, request: Request):
 
 
 
+def _explicit_search_intent(task: str) -> bool:
+    """Only search when the user positively requests research or current information."""
+    text = str(task or "").strip()
+    # Honor clear no-search instructions, including common Hinglish phrasing.
+    negative = re.search(
+        r"\\b(without|don['’]?t|do not|no need to|avoid|bina|mat|nahi|nahin)\\b"
+        r".{0,70}\\b(search|web|internet|browse|online)\\b|"
+        r"\\b(search|web|internet|browse)\\b.{0,40}\\b(mat|nahi|nahin|not)\\b",
+        text, re.I
+    )
+    if negative:
+        return False
+    return bool(re.search(
+        r"\\b(web search|internet search|search the (web|internet)|browse (the )?(web|internet)|"
+        r"look\\s*up|research|latest|today|current|recent|news|updates?|sources?|"
+        r"abhi|aaj|taaza|khabar|khabrein|samachar|dhundo|khojo)\\b",
+        text, re.I
+    ))
+
+
 class AgentRequest(BaseModel):
     task: str = Field(min_length=2, max_length=1200)
     provider: str = Field(default="gemini", min_length=1, max_length=40)
@@ -920,11 +940,7 @@ async def run_agent(payload: AgentRequest, request: Request):
                 tool_results.append({"tool": "website_reader", "error": str(fallback_exc)[:220]})
     # General-purpose research intent: this applies to any subject, not a
     # single organization, science topic, or news category.
-    needs_search = bool(re.search(
-        r"\b(latest|today|current|recent|news|search|internet|online|website|browse|research|look\s*up|find|search\s+for|sources?|updates?|"
-        r"abhi|aaj|taaza|dhundo|khojo|ke\s+baare\s+mein|ke\s+bare\s+mein)\b",
-        task, re.I
-    ))
+    needs_search = _explicit_search_intent(task)
     if needs_search:
         try:
             found = await asyncio.wait_for(asyncio.to_thread(run_web_search, task), timeout=30)
