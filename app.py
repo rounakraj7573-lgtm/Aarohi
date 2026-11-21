@@ -847,17 +847,17 @@ def _explicit_search_intent(task: str) -> bool:
     text = str(task or "").strip()
     # Honor clear no-search instructions, including common Hinglish phrasing.
     negative = re.search(
-        r"\\b(without|don['’]?t|do not|no need to|avoid|bina|mat|nahi|nahin)\\b"
-        r".{0,70}\\b(search|web|internet|browse|online)\\b|"
-        r"\\b(search|web|internet|browse)\\b.{0,40}\\b(mat|nahi|nahin|not)\\b",
+        r"\b(without|don['’]?t|do not|no need to|avoid|bina|mat|nahi|nahin)\b"
+        r".{0,70}\b(search|web|internet|browse|online)\b|"
+        r"\b(search|web|internet|browse)\b.{0,40}\b(mat|nahi|nahin|not)\b",
         text, re.I
     )
     if negative:
         return False
     return bool(re.search(
-        r"\\b(web search|internet search|search the (web|internet)|browse (the )?(web|internet)|"
-        r"look\\s*up|research|latest|today|current|recent|news|updates?|sources?|"
-        r"abhi|aaj|taaza|khabar|khabrein|samachar|dhundo|khojo)\\b",
+        r"\b(web search|internet search|search the (web|internet)|browse (the )?(web|internet)|"
+        r"look\s*up|research|latest|today|current|recent|news|updates?|sources?|"
+        r"abhi|aaj|taaza|khabar|khabrein|samachar|dhundo|khojo)\b",
         text, re.I
     ))
 
