@@ -630,7 +630,7 @@ def _run_web_search_single(query: str):
         failures.append("gdelt:" + type(exc).__name__)
 
     # RSS article feeds are a no-key fallback with international coverage.
-    rss_query = cleaned_query + (" when:30d" if is_latest else "")
+    # Let RSS providers return matching articles; the server-side publication-date\n    # filter below enforces the requested time window. Google News `when:30d`\n    # can suppress feed entries on some regional editions, so avoid that operator.\n    rss_query = cleaned_query
     # Global coverage: search results across multiple Google News editions.
     # These are parallel sources for the same query, not country/topic restrictions.
     feeds = [
