@@ -921,9 +921,8 @@ async def run_agent(payload: AgentRequest, request: Request):
     # General-purpose research intent: this applies to any subject, not a
     # single organization, science topic, or news category.
     needs_search = bool(re.search(
-        r"\b(latest|today|current|recent|news|search|internet|online|website|browse|research|look\s*up|find|search\s+for|sources?|summari[sz]e|information|info|updates?|"
-        r"
-        r"abhi|aaj|taaza|dhundo|khojo|ke\s+baare\s+mein|ke\s+bare\s+mein|kya\s+hai|kaun\s+hai|samjhao)\b",
+        r"\\b(latest|today|current|recent|news|search|internet|online|website|browse|research|look\\s*up|find|search\\s+for|sources?|updates?|"
+        r"abhi|aaj|taaza|dhundo|khojo|ke\\s+baare\\s+mein|ke\\s+bare\\s+mein)\\b",
         task, re.I
     ))
     if needs_search:
