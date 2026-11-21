@@ -952,7 +952,7 @@ async def run_agent(payload: AgentRequest, request: Request):
             ]
             tool_results.append({"tool": "web_search", "results": cleaned} if cleaned else {"tool": "web_search", "error": "No useful search results were returned."})
         except Exception as exc:
-            print("Aarohi agent search error: " + type(exc).__name__)
+            print("Aarohi agent search error: " + type(exc).__name__ + "\\n" + __import__("traceback").format_exc())
             tool_results.append({"tool": "web_search", "error": "Search providers timed out or could not be reached. Do not invent results."})
 
     system = (
@@ -966,6 +966,16 @@ async def run_agent(payload: AgentRequest, request: Request):
         "Be concise and answer in the user's language." + ("\n\nUser-approved saved memory (use only when relevant):\n" + payload.memory if payload.memory.strip() else "")
     )
     search_result = next((item for item in tool_results if item.get("tool") == "web_search"), None)
+    # For reader-only requests, return the captured evidence directly. This prevents
+    # the model from adding unsupported claims even when prompt grounding fails.
+    reader_result = next((item for item in tool_results if item.get("tool") == "website_reader"), None)
+    if url_match and not needs_search:
+        if reader_result and reader_result.get("content"):
+            content = str(reader_result.get("content") or "").strip()
+            title = str(reader_result.get("title") or "Untitled page")
+            url = str(reader_result.get("url") or url_match.group(0))
+            return {"reply": "Website reader extracted the following page text. This is the page evidence only; no additional claims were inferred.\\n\\nTitle: " + title + "\\nURL: " + url + "\\n\\nExtracted text:\\n" + content[:10000], "tools_used": [x["tool"] for x in tool_results], "tool_results": tool_results}
+        return {"reply": "Website reader could not extract readable page text. I cannot summarize it without page evidence.", "tools_used": [x["tool"] for x in tool_results], "tool_results": tool_results}
     if needs_search and (not search_result or not search_result.get("results")):
         return {
             "reply": "I couldn't retrieve live search results just now, so I can't reliably summarize the latest information. Please try again shortly. No sources were found.",
