@@ -452,7 +452,16 @@ def _valid_search_item(item, query):
     terms = _search_terms(query)
     if not terms:
         return True
-    required = min(2, len(terms))
+    # For explicit country searches, the country name is the essential
+    # relevance signal. Long user prompts often add words like "verified",
+    # "headlines", "publisher", and "direct links"; requiring two such terms
+    # incorrectly discards valid country news. Still require the country itself
+    # to appear in title/snippet/domain to avoid unrelated articles.
+    country_targeted = any(
+        re.search(r"(?<![A-Za-z])" + re.escape(name) + r"(?![A-Za-z])", query, re.I)
+        for name in _COUNTRY_QUERY_NAMES
+    )
+    required = 1 if country_targeted else min(2, len(terms))
     return _search_match_score(item, query) >= required
 
 def _parse_search_date(raw_value):
@@ -785,7 +794,6 @@ def run_web_search(query: str):
                         seen.add(url)
                         output.append(item)
         return output[:10]
-    queries = _split_country_queries(query)
     queries = _split_country_queries(query)
     if len(queries) == 1:
         return _run_web_search_single(query)
