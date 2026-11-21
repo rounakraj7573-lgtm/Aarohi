@@ -922,7 +922,7 @@ async def run_agent(payload: AgentRequest, request: Request):
     # single organization, science topic, or news category.
     needs_search = bool(re.search(
         r"\b(latest|today|current|recent|news|search|internet|online|website|browse|research|look\s*up|find|search\s+for|sources?|summari[sz]e|information|info|updates?|"
-        r"explain|tell\s+me\s+about|who\s+is|what\s+is|what\s+are|how\s+does|how\s+do|compare|facts?\s+about|details?\s+about|"
+        r"
         r"abhi|aaj|taaza|dhundo|khojo|ke\s+baare\s+mein|ke\s+bare\s+mein|kya\s+hai|kaun\s+hai|samjhao)\b",
         task, re.I
     ))
