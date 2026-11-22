@@ -257,24 +257,44 @@ class ResearchRequest(BaseModel):
 
 
 class _PageTextParser(HTMLParser):
+    # Filter page chrome and promotional/language widgets before collecting text.
+    SKIP_TAGS = {"script", "style", "noscript", "svg", "nav", "header", "footer", "aside", "form", "button"}
+    SKIP_WORDS = re.compile(r"language-selector|language list|donate|donation|fundraiser|banner|footer|sidebar|navigation|navbox|cookie|consent", re.I)
     def __init__(self):
         super().__init__()
         self.title = []
         self.parts = []
         self.in_title = False
         self.skip_depth = 0
+        self.skip_stack = []
     def handle_starttag(self, tag, attrs):
-        if tag.lower() == "title": self.in_title = True
-        if tag.lower() in ("script", "style", "noscript", "svg"): self.skip_depth += 1
+        tag = tag.lower()
+        attr_map = {str(k).lower(): str(v or "") for k, v in attrs}
+        label = attr_map.get("id", "") + " " + attr_map.get("class", "")
+        excluded = tag in self.SKIP_TAGS or bool(self.SKIP_WORDS.search(label))
+        self.skip_stack.append((tag, excluded))
+        if excluded:
+            self.skip_depth += 1
+        if tag == "title":
+            self.in_title = True
     def handle_endtag(self, tag):
-        if tag.lower() == "title": self.in_title = False
-        if tag.lower() in ("script", "style", "noscript", "svg") and self.skip_depth:
-            self.skip_depth -= 1
+        tag = tag.lower()
+        if tag == "title":
+            self.in_title = False
+        for index in range(len(self.skip_stack) - 1, -1, -1):
+            if self.skip_stack[index][0] == tag:
+                popped = self.skip_stack[index:]
+                self.skip_stack = self.skip_stack[:index]
+                self.skip_depth = max(0, self.skip_depth - sum(1 for _, excluded in popped if excluded))
+                break
     def handle_data(self, data):
         value = " ".join(data.split())
-        if not value: return
-        if self.in_title: self.title.append(value)
-        if not self.skip_depth: self.parts.append(value)
+        if not value:
+            return
+        if self.in_title and not self.skip_depth:
+            self.title.append(value)
+        if not self.skip_depth:
+            self.parts.append(value)
 
 
 def _validate_public_http_url(raw_url: str):
@@ -966,16 +986,8 @@ async def run_agent(payload: AgentRequest, request: Request):
         "Be concise and answer in the user's language." + ("\n\nUser-approved saved memory (use only when relevant):\n" + payload.memory if payload.memory.strip() else "")
     )
     search_result = next((item for item in tool_results if item.get("tool") == "web_search"), None)
-    # For reader-only requests, return the captured evidence directly. This prevents
-    # the model from adding unsupported claims even when prompt grounding fails.
-    reader_result = next((item for item in tool_results if item.get("tool") == "website_reader"), None)
-    if url_match and not needs_search:
-        if reader_result and reader_result.get("content"):
-            content = str(reader_result.get("content") or "").strip()
-            title = str(reader_result.get("title") or "Untitled page")
-            url = str(reader_result.get("url") or url_match.group(0))
-            return {"reply": "Website reader extracted the following page text. This is the page evidence only; no additional claims were inferred.\\n\\nTitle: " + title + "\\nURL: " + url + "\\n\\nExtracted text:\\n" + content[:10000], "tools_used": [x["tool"] for x in tool_results], "tool_results": tool_results}
-        return {"reply": "Website reader could not extract readable page text. I cannot summarize it without page evidence.", "tools_used": [x["tool"] for x in tool_results], "tool_results": tool_results}
+    # Reader requests flow through the model to summarize cleaned evidence
+    # in the user's language, rather than echoing raw page text.
     if needs_search and (not search_result or not search_result.get("results")):
         return {
             "reply": "I couldn't retrieve live search results just now, so I can't reliably summarize the latest information. Please try again shortly. No sources were found.",
