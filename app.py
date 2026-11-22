@@ -349,9 +349,17 @@ def fetch_public_website(raw_url: str):
 
 def fetch_wikipedia_article(raw_url: str):
     parsed = urlparse(raw_url)
-    if parsed.hostname not in ("en.wikipedia.org", "www.wikipedia.org", "m.wikipedia.org") or "/wiki/" not in parsed.path:
-        raise ValueError("This is not a supported Wikipedia article URL.")
-    title = unquote(parsed.path.split("/wiki/", 1)[1]).split("#", 1)[0]
+    if parsed.hostname not in ("en.wikipedia.org", "www.wikipedia.org", "m.wikipedia.org"):
+        raise ValueError("This is not a supported Wikipedia URL.")
+    # Allow the Wikipedia homepage URL by resolving it to the encyclopaedia's
+    # own article summary, instead of rejecting URLs without /wiki/ paths.
+    is_homepage = parsed.path in ("", "/")
+    if is_homepage:
+        title = "Wikipedia"
+    elif "/wiki/" in parsed.path:
+        title = unquote(parsed.path.split("/wiki/", 1)[1]).split("#", 1)[0]
+    else:
+        raise ValueError("Please use a Wikipedia homepage or article URL.")
     if not title:
         raise ValueError("Wikipedia article title is missing.")
     headers = {"User-Agent": "AarohiAI/1.0 (public webpage reader; contact: support@example.invalid)"}
