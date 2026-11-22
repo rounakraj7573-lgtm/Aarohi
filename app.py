@@ -955,17 +955,28 @@ async def run_agent(payload: AgentRequest, request: Request):
             tool_results.append({"tool": "website_reader", **page})
             page_fetched = True
         except Exception as exc:
-            # Wikipedia's text API is a reliable fallback when its public HTML page
-            # blocks or redirects automated readers.
-            try:
-                page = await asyncio.wait_for(
-                    asyncio.to_thread(fetch_wikipedia_article, url_match.group(0).rstrip(".,)")),
-                    timeout=18,
-                )
-                tool_results.append({"tool": "website_reader", **page})
-                page_fetched = True
-            except Exception as fallback_exc:
-                tool_results.append({"tool": "website_reader", "error": str(fallback_exc)[:220]})
+            failed_url = url_match.group(0).rstrip(".,)")
+            parsed_failed_url = urlparse(failed_url if "://" in failed_url else "https://" + failed_url)
+            # Use the Wikimedia text API fallback only for Wikimedia domains.
+            # Other sites should report the real fetch limitation, not a misleading
+            # "unsupported Wikipedia URL" error.
+            is_wikipedia = (parsed_failed_url.hostname or "").lower() in (
+                "en.wikipedia.org", "www.wikipedia.org", "m.wikipedia.org"
+            )
+            if is_wikipedia:
+                try:
+                    page = await asyncio.wait_for(
+                        asyncio.to_thread(fetch_wikipedia_article, failed_url),
+                        timeout=18,
+                    )
+                    tool_results.append({"tool": "website_reader", **page})
+                    page_fetched = True
+                except Exception as fallback_exc:
+                    tool_results.append({"tool": "website_reader", "error": str(fallback_exc)[:220]})
+            else:
+                tool_results.append({"tool": "website_reader", "error": (
+                    "The website could not be fetched as readable HTML: " + str(exc)[:180]
+                )})
     # General-purpose research intent: this applies to any subject, not a
     # single organization, science topic, or news category.
     needs_search = _explicit_search_intent(task)
