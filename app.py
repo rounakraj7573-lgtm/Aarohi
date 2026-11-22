@@ -981,9 +981,34 @@ async def run_agent(payload: AgentRequest, request: Request):
                 except Exception as fallback_exc:
                     tool_results.append({"tool": "website_reader", "error": str(fallback_exc)[:220]})
             else:
-                tool_results.append({"tool": "website_reader", "error": (
-                    "The website could not be fetched as readable HTML: " + str(exc)[:180]
-                )})
+                reader_error = "The website could not be fetched as readable HTML: " + str(exc)[:180]
+                tool_results.append({"tool": "website_reader", "error": reader_error})
+                # Backup: search public indexed information about the requested domain.
+                # These snippets are not a substitute for reading the live webpage.
+                host = parsed_failed_url.hostname or ""
+                backup_query = "site:" + host + " " + task.replace(failed_url, "").strip()
+                try:
+                    backup_results = await asyncio.wait_for(
+                        asyncio.to_thread(run_web_search, backup_query), timeout=25
+                    )
+                    backup_clean = [
+                        {"title": str(item.get("title") or "")[:180],
+                         "url": str(item.get("href") or item.get("url") or ""),
+                         "snippet": str(item.get("body") or item.get("snippet") or "")[:500]}
+                        for item in backup_results[:5]
+                        if str(item.get("href") or item.get("url") or "").startswith(("https://", "http://"))
+                    ]
+                    if backup_clean:
+                        tool_results.append({"tool": "website_reader_search_fallback",
+                                            "domain": host, "results": backup_clean,
+                                            "note": "Search snippets only; live webpage content was not fetched."})
+                    else:
+                        tool_results.append({"tool": "website_reader_search_fallback",
+                                            "domain": host, "error": "No indexed snippets were found."})
+                except Exception as fallback_exc:
+                    print("Aarohi website reader backup search error: " + type(fallback_exc).__name__)
+                    tool_results.append({"tool": "website_reader_search_fallback",
+                                        "domain": host, "error": "Search backup could not be reached."})
     # General-purpose research intent: this applies to any subject, not a
     # single organization, science topic, or news category.
     needs_search = _explicit_search_intent(task)
