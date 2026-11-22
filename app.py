@@ -315,9 +315,14 @@ def _validate_public_http_url(raw_url: str):
 
 def fetch_public_website(raw_url: str):
     current_url = raw_url if "://" in raw_url else "https://" + raw_url
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; AarohiReader/1.0)"}
-    chunks, total, encoding = [], 0, "utf-8"
-    with httpx.Client(timeout=httpx.Timeout(5.0), follow_redirects=False, headers=headers) as client:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    chunks, encoding, final_url = [], "utf-8", current_url
+    last_status = None
+    with httpx.Client(timeout=httpx.Timeout(8.0), follow_redirects=False, headers=headers) as client:
         for hop in range(6):
             _validate_public_http_url(current_url)
             with client.stream("GET", current_url) as response:
@@ -327,25 +332,27 @@ def fetch_public_website(raw_url: str):
                         raise ValueError("The website redirected too many times.")
                     current_url = urljoin(current_url, location)
                     continue
+                last_status = response.status_code
                 response.raise_for_status()
                 if "text/html" not in response.headers.get("content-type", "").lower():
                     raise ValueError("This URL does not return an HTML webpage.")
+                total = 0
                 for chunk in response.iter_bytes():
                     total += len(chunk)
-                    if total > 1_000_000:
+                    if total > 1000000:
                         raise ValueError("The webpage is too large to inspect safely.")
                     chunks.append(chunk)
                 encoding = response.encoding or "utf-8"
+                final_url = current_url
                 break
         else:
-            raise ValueError("The website could not be opened.")
+            raise ValueError("The website could not be opened after redirects.")
     parser = _PageTextParser()
     parser.feed(b"".join(chunks).decode(encoding, errors="replace"))
     content = " ".join(parser.parts)[:10000]
     if len(content) < 80:
         raise ValueError("The webpage did not provide enough readable text.")
-    return {"url": current_url, "title": " ".join(parser.title)[:240], "content": content, "characters_read": len(content)}
-
+    return {"url": final_url, "title": " ".join(parser.title)[:240], "content": content, "characters_read": len(content)}
 
 def fetch_wikipedia_article(raw_url: str):
     parsed = urlparse(raw_url)
