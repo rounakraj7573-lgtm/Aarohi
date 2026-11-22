@@ -630,22 +630,22 @@ def _run_web_search_single(query: str):
         failures.append("gdelt:" + type(exc).__name__)
 
     # RSS article feeds are a no-key fallback with international coverage.
-    # Let RSS providers return matching articles; the server-side publication-date\n    # filter below enforces the requested time window. Google News `when:30d`\n    # can suppress feed entries on some regional editions, so avoid that operator.\n    rss_query = cleaned_query
+    # Let RSS providers return matching articles; the server-side publication-date\n    # filter below enforces the requested time window. Google News `when:30d`\n    # can suppress feed entries on some regional editions, so avoid that operator.\n    cleaned_query = cleaned_query
     # Global coverage: search results across multiple Google News editions.
     # These are parallel sources for the same query, not country/topic restrictions.
     feeds = [
-        ("https://www.bing.com/search", {"format": "rss", "q": rss_query}),
+        ("https://www.bing.com/search", {"format": "rss", "q": cleaned_query}),
         ("https://news.google.com/rss/search", {
-            "q": rss_query, "hl": "en-US", "gl": "US", "ceid": "US:en"
+            "q": cleaned_query, "hl": "en-US", "gl": "US", "ceid": "US:en"
         }),
         ("https://news.google.com/rss/search", {
-            "q": rss_query, "hl": "en-GB", "gl": "GB", "ceid": "GB:en"
+            "q": cleaned_query, "hl": "en-GB", "gl": "GB", "ceid": "GB:en"
         }),
         ("https://news.google.com/rss/search", {
-            "q": rss_query, "hl": "en-IN", "gl": "IN", "ceid": "IN:en"
+            "q": cleaned_query, "hl": "en-IN", "gl": "IN", "ceid": "IN:en"
         }),
         ("https://news.google.com/rss/search", {
-            "q": rss_query, "hl": "en-001", "gl": "US", "ceid": "US:en"
+            "q": cleaned_query, "hl": "en-001", "gl": "US", "ceid": "US:en"
         }),
     ]
     if re.search(r"\bNASA\b|\bArtemis\b", query, re.I):
