@@ -20,5 +20,7 @@ jobs:
         run: pip install -r requirements-dev.txt
       - name: Compile backend
         run: python -m py_compile app.py
+      - name: Check frontend JavaScript syntax
+        run: node --check static/app.js
       - name: Run tests
         run: pytest -q

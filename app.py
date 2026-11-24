@@ -130,6 +130,8 @@ async def write_workspace_file(payload: WorkspaceFileInput, request: Request):
     total = sum(len(value.encode("utf-8")) for value in files.values())
     old_size = len(files.get(name, "").encode("utf-8"))
     new_size = len(payload.content.encode("utf-8"))
+    if new_size > MAX_WORKSPACE_FILE_BYTES:
+        raise HTTPException(status_code=413, detail="Workspace file size limit reached (16 KB).")
     if total - old_size + new_size > MAX_WORKSPACE_TOTAL_BYTES:
         raise HTTPException(status_code=413, detail="Workspace storage limit reached (64 KB).")
     files[name] = payload.content
@@ -477,7 +479,7 @@ def _valid_search_item(item, query):
             return False
         generic_path = {"news", "world", "sports", "sport", "technology", "tech", "business",
                        "science", "health", "politics", "latest", "articles", "topics", "category"}
-        if len(path) == 1 and (path[0].lower() in generic_path or len(path[0]) < 18):
+        if len(path) == 1 and path[0].lower() in generic_path:
             return False
         if len(path) > 1 and path[-1].lower() in generic_path:
             return False

@@ -77,3 +77,34 @@ def test_hinglish_time_phrases_trigger_recent_news_mode():
     assert _is_latest_query("India aaj ki taaza news")
     assert _is_latest_query("Japan latest news")
     assert not _is_latest_query("Japan history and culture")
+
+
+def test_accept_short_single_segment_article_slugs():
+    from app import _valid_search_item
+
+    assert _valid_search_item({
+        "title": "Japan announces new economic measures",
+        "href": "https://example.org/japan-news",
+        "body": "Japan policy update",
+    }, "Japan recent news")
+
+    assert _valid_search_item({
+        "title": "Brazil central bank announces policy decision",
+        "href": "https://example.org/brazil-policy",
+        "body": "Brazil economic update",
+    }, "Brazil recent news")
+
+
+def test_reject_generic_news_category_paths():
+    from app import _valid_search_item
+
+    assert not _valid_search_item({
+        "title": "Japan news",
+        "href": "https://example.org/news",
+        "body": "Japan updates",
+    }, "Japan recent news")
+    assert not _valid_search_item({
+        "title": "World sports",
+        "href": "https://example.org/world/sports",
+        "body": "Japan sports updates",
+    }, "Japan recent news")

@@ -10,9 +10,10 @@ Aarohi is a cloud-first AI assistant. The Android phone/browser runs the interfa
 - **Web research:** DDGS, GDELT, Bing/Google News RSS, plus a Wikipedia fallback for non-time-sensitive background research; live news may still be unavailable if public sources rate-limit or block requests.
 - **Agent tools:** calculator, public webpage reader and web search. Website content is untrusted input and is not treated as instructions.
 - **Python:** `/api/code/run` uses Tensorlake's isolated cloud sandbox when `TENSORLAKE_API_KEY` is configured. It requests no guest internet access or public ports, limits each Python process to 20 seconds, and allows one active run at a time in Aarohi. The Tensorlake Free plan currently lists one concurrent sandbox, 1 vCPU, 1 GB RAM, and up to 2 hours per sandbox session; availability and limits can change.
-- **Workspace files:** small, temporary in-memory files; max 10 files, 16 KB per file, 64 KB total per workspace, 500 workspaces, and 24-hour idle expiry. Files can disappear on restart or eviction.
-- **Chat history and saved memory:** stored in the current browser/device. Export creates a readable HTML archive that also contains restorable backup data; import accepts the new HTML archive and older JSON backups. There is no automatic cloud sync.
-- **Workspace downloads:** use `download file <name>` to download a text workspace file with a matching filename extension and MIME type.
+- **Workspace files in the web UI:** stored in this browser's `localStorage`, with a 10-file, 16 KB per-file, and 64 KB total limit. They are not cloud-synced and are not currently included in the chat backup.
+- **Backend workspace API:** separate temporary in-memory endpoints with a 10-file, 16 KB per-file, 64 KB total, 500-workspace, and 24-hour idle-expiry limit. These endpoints are not currently wired into the web UI and their data can disappear on restart or eviction.
+- **Chat history and saved memory:** stored in the current browser/device. Export creates a readable HTML archive that also contains restorable chat and memory backup data; import accepts the new HTML archive and older JSON backups. There is no automatic cloud sync.
+- **Workspace downloads:** use `download file <name>` to download a browser-local text workspace file with a matching filename extension and MIME type.
 
 ## Server environment
 
