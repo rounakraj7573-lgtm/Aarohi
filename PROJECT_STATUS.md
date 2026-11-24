@@ -2,7 +2,7 @@
 
 Last audited: 2026-11-24  
 Repository: [rounakraj7573-lgtm/Aarohi](https://github.com/rounakraj7573-lgtm/Aarohi)  
-Audited deployed commit: `48d42bcfd2dacd181ff230cf6f23d1c25efb3d6f`
+Audited deployed commit: `2fe267435c1653214c2bda6576af0fe5d909f49a`
 
 Status meanings:
 - **VERIFIED** — supported by a repeatable automated test or a current platform/runtime check.
@@ -13,7 +13,7 @@ Status meanings:
 |---|---|---|
 | Backend deployment | VERIFIED | Render reports the backend deploy for `48d42bc` as live; startup completed and health requests returned HTTP 200 in logs. |
 | Frontend deployment | VERIFIED | Render reports the static-site deploy for `48d42bc` as live. A real browser/device session is not available in this audit. |
-| Backend health and security headers | PARTIAL | Health endpoint returned HTTP 200 in Render logs; automated header tests are being added in this change. |
+| Backend health and security headers | VERIFIED | `/api/health` and security-header behavior pass automated TestClient checks; Render logs also confirm the backend starts and serves `/` with HTTP 200. |
 | Frontend desktop/mobile behavior | PARTIAL | Responsive CSS and mobile-menu controls exist; no real browser automation or Android interaction test yet. |
 | AI provider configuration | PARTIAL | Provider allowlist and configuration logic exist; a mocked Gemini chat test is being added. Live provider-by-provider quota/connectivity checks remain outstanding. |
 | Chat behavior | PARTIAL | Chat route and Aarohi identity prompt exist; mocked route coverage is being added. Real model responses and failure cases still need live verification. |
@@ -24,7 +24,16 @@ Status meanings:
 | Chat history export/import | PARTIAL | Browser-side HTML/JSON backup code exists; full browser round-trip testing remains outstanding. |
 | Access control, CORS, rate limits, SSRF safeguards | PARTIAL | Controls exist in code; focused automated regression tests are being added, but this is not a security certification. |
 | Performance and error handling | PARTIAL | Search-provider timeouts are visible in logs; broader latency, resource, and mobile performance testing remains outstanding. |
-| Continuous integration | PARTIAL | The latest known workflow (#137 on 2026-11-22) failed 2 of 12 tests. The article-slug filter and test coverage are updated in this commit; the new CI result must be checked before marking this VERIFIED. |
+| Continuous integration | VERIFIED | Workflow [#138](https://github.com/rounakraj7573-lgtm/Aarohi/actions/runs/45323173397) passed on commit `2fe2674`: Python compile passed, `node --check static/app.js` passed, and all 29 pytest tests passed. |
+
+## Current verification (2026-11-24)
+
+- GitHub Actions workflow #138: **success**.
+- `python -m py_compile app.py`: **passed**.
+- `node --check static/app.js`: **passed**.
+- `pytest -q`: **29 passed in 2.58 seconds**.
+- Render backend and frontend deploys for commit `2fe2674`: both **live**.
+- Backend startup completed and Render logged a successful `GET /` with HTTP 200. A direct external health-endpoint probe was not available in this audit; the health route and headers were verified through automated tests.
 
 ## Current evidenced fixes
 
