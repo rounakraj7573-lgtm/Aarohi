@@ -108,3 +108,30 @@ def test_reject_generic_news_category_paths():
         "href": "https://example.org/world/sports",
         "body": "Japan sports updates",
     }, "Japan recent news")
+
+
+def test_gdelt_seen_timestamp_is_not_mislabeled_as_publication_date():
+    from app import _gdelt_article_candidate
+
+    candidate = _gdelt_article_candidate({
+        "title": "International climate agreement announced",
+        "url": "https://publisher.example/world/climate-agreement",
+        "seendate": "20261124T153000Z",
+        "domain": "publisher.example",
+    })
+
+    assert candidate["indexed_at"] == "20261124T153000Z"
+    assert candidate["published_at"] is None
+    assert "Indexed by GDELT" in candidate["body"]
+    assert _parse_search_date(candidate["published_at"]) is None
+
+
+def test_gdelt_candidate_without_seen_timestamp_remains_undated():
+    from app import _gdelt_article_candidate
+
+    candidate = _gdelt_article_candidate({
+        "title": "A reported development",
+        "url": "https://publisher.example/article",
+    })
+    assert candidate["published_at"] is None
+    assert candidate["indexed_at"] is None

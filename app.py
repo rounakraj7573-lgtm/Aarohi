@@ -582,6 +582,30 @@ def _is_latest_query(query: str) -> bool:
     ))
 
 
+def _gdelt_article_candidate(item):
+    """Normalize GDELT's indexed/seen timestamp without mislabeling it as publication date.
+
+    GDELT seendate is when its crawler observed an article, not the publisher's
+    original publication timestamp. Current-news filtering must therefore treat
+    this candidate as undated unless a publisher date is supplied independently.
+    """
+    title = str(item.get("title") or "").strip()
+    url = str(item.get("url") or "").strip()
+    seen = str(item.get("seendate") or "").strip()
+    domain = str(item.get("domain") or "").strip()
+    details = ["Indexed by GDELT" + (": " + seen if seen else "")]
+    if domain:
+        details.append(domain)
+    return {
+        "title": title[:240],
+        "href": url,
+        "body": " · ".join(details)[:700],
+        "published_at": None,
+        "indexed_at": seen or None,
+        "source_provider": "gdelt",
+    }
+
+
 def _run_web_search_single(query: str):
     # Search one topic/country at a time to avoid multi-country relevance dilution.
     # Use several public, no-key article sources and never fall back to generic portals.
@@ -665,9 +689,7 @@ def _run_web_search_single(query: str):
         for item in response.json().get("articles", [])[:30]:
             title = str(item.get("title") or "").strip()
             url = str(item.get("url") or "").strip()
-            seen = str(item.get("seendate") or "")
-            snippet = seen + ((" · " + str(item.get("domain") or "")) if item.get("domain") else "")
-            items.append({"title": title[:240], "href": url, "body": snippet[:700], "published_at": seen})
+            items.append(_gdelt_article_candidate(item))
         add_candidates(items, "gdelt")
     except Exception as exc:
         failures.append("gdelt:" + type(exc).__name__)
@@ -775,7 +797,7 @@ def _run_web_search_single(query: str):
     )
     diagnostics = "; ".join(
         provider + "=" + str(stats["accepted"]) + "/" + str(stats["received"]) +
-        " accepted, " + str(stats["undated"]) + " undated, " + str(stats["outside_window"]) + " outside 30d"
+        " accepted, " + str(stats["undated"]) + " undated, " + str(stats["outside_window"]) + " outside requested window"
         for provider, stats in sorted(provider_stats.items())
     )
     print("Aarohi search diagnostics: " + (diagnostics or "no provider candidates") +
@@ -823,7 +845,7 @@ def run_web_search(query: str):
     if _is_broad_world_news_query(query):
         days = _requested_news_window_days(query)
         topics = ("politics", "economy", "science", "technology", "environment", "sports")
-        subqueries = [topic + " news last " + str(days) + " days" for topic in topics]
+        subqueries = ["international " + topic + " news last " + str(days) + " days" for topic in topics]
         with ThreadPoolExecutor(max_workers=6) as pool:
             groups = list(pool.map(_run_web_search_single, subqueries))
         output, seen = [], set()

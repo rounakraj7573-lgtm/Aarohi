@@ -1,6 +1,6 @@
 # Aarohi project status
 
-Last audited: 2026-11-25  
+Last audited: 2026-11-25 (additional search audit)  
 Repository: [rounakraj7573-lgtm/Aarohi](https://github.com/rounakraj7573-lgtm/Aarohi)  
 Verified application-code commit: `d028672f8760284c8d4f0a23c78582e202f2d35c`
 
@@ -17,7 +17,7 @@ Status meanings:
 | Frontend desktop/mobile behavior | PARTIAL | Responsive CSS, mobile menu, and asset serving are covered by source/endpoint tests; no real browser automation or Android interaction test yet. |
 | AI provider configuration | PARTIAL | Provider allowlist and configured-provider filtering are tested; a mocked Gemini chat request passes. Render logged `GET /api/providers` 200, but live model responses, per-provider connectivity, and free quotas are not verified. |
 | Chat behavior | PARTIAL | Chat route and Aarohi identity prompt pass a mocked Gemini test. A real model response and provider failure/retry behavior remain unverified. |
-| Web research and recent news | PARTIAL | Search/date parsing and article filtering have regression tests. Previous user tests still reported poor or missing global news results; recent live cross-country article relevance, publisher/date accuracy, and original-link quality are not verified. |
+| Web research and recent news | PARTIAL | Search/date parsing and article filtering have regression tests. Fixed a provenance bug: GDELT `seendate` is an index/observation timestamp, not the publisher's publication date; GDELT candidates are now explicitly undated for strict recent-news filtering rather than being presented with a false publication date. Broad-news topic queries now include an international qualifier and Google News edition coverage includes Australia and Singapore. Live cross-country relevance and original-link quality remain unverified. |
 | Website reader | PARTIAL | Direct HTML parsing and search-only fallback exist. Python Docs and WHO worked in user tests; Britannica returned 403 and fallback results were weak. The model must continue distinguishing fetched page text from search snippets. |
 | Cloud Python execution | NOT TESTED | Tensorlake integration exists and correctly reports an unconfigured sandbox in a test. No actual deployed safe sandbox execution or current free-quota confirmation has been completed. |
 | Workspace files and downloads | PARTIAL | Browser UI files use localStorage and persist only in that browser. Backend workspace endpoints are separate temporary in-memory storage and are not wired to the UI; neither provides durable cloud sync. Local browser download behavior still needs a real browser round-trip test. |
@@ -26,7 +26,7 @@ Status meanings:
 | Performance and error handling | PARTIAL | Provider timeouts and errors have appeared in earlier logs; a recent filtered log query found no matching timeout/error entries, but latency, resource use, and mobile performance are not benchmarked. |
 | Continuous integration | VERIFIED | GitHub Actions [workflow #141](https://github.com/rounakraj7573-lgtm/Aarohi/actions/runs/45537786853) passed on application commit `d028672`: backend compilation, frontend JavaScript syntax check, and pytest all succeeded. The suite now contains 31 tests. |
 
-## Current verification (2026-11-25)
+## Current verification (2026-11-25; follow-up search audit)\n\n- Follow-up code audit found that GDELT `seendate` had been passed into `published_at`. Corrected this provenance error: it is now retained as `indexed_at` and never satisfies the strict publication-date requirement.\n- Broad world-news searches now qualify topic queries as international and add Australia/Singapore English Google News editions alongside existing editions. This improves geographic coverage but does not prove balanced global results.\n- Two regression tests added for GDELT timestamp provenance. CI must pass before this change is considered validated.\n\n## Previous verification (2026-11-25)
 
 - GitHub Actions workflow #140 passed after adding the CORS preflight regression test.
 - GitHub Actions workflow #141: **success** on `d028672`; backend compile, `node --check static/app.js`, and `pytest -q` all passed.
