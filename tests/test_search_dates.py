@@ -135,3 +135,20 @@ def test_gdelt_candidate_without_seen_timestamp_remains_undated():
     })
     assert candidate["published_at"] is None
     assert candidate["indexed_at"] is None
+
+
+
+def test_multi_country_news_request_uses_global_search_mode():
+    from app import _is_broad_world_news_query
+
+    query = (
+        "Find 10 important real-world news articles published in the last 7 days "
+        "from at least 8 different countries across different continents."
+    )
+    assert _is_broad_world_news_query(query)
+
+
+def test_single_country_news_request_does_not_use_global_search_mode():
+    from app import _is_broad_world_news_query
+
+    assert not _is_broad_world_news_query("Japan latest news from the last 7 days")
