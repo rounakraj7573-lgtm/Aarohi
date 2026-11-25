@@ -687,8 +687,6 @@ def _run_web_search_single(query: str):
         response.raise_for_status()
         items = []
         for item in response.json().get("articles", [])[:30]:
-            title = str(item.get("title") or "").strip()
-            url = str(item.get("url") or "").strip()
             items.append(_gdelt_article_candidate(item))
         add_candidates(items, "gdelt")
     except Exception as exc:
@@ -710,7 +708,10 @@ def _run_web_search_single(query: str):
             "q": cleaned_query, "hl": "en-IN", "gl": "IN", "ceid": "IN:en"
         }),
         ("https://news.google.com/rss/search", {
-            "q": cleaned_query, "hl": "en-001", "gl": "US", "ceid": "US:en"
+            "q": cleaned_query, "hl": "en-AU", "gl": "AU", "ceid": "AU:en"
+        }),
+        ("https://news.google.com/rss/search", {
+            "q": cleaned_query, "hl": "en-SG", "gl": "SG", "ceid": "SG:en"
         }),
     ]
     if re.search(r"\bNASA\b|\bArtemis\b", query, re.I):
