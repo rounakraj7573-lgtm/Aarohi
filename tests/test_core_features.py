@@ -39,6 +39,13 @@ def test_health_response_has_no_store_and_security_headers():
     assert response.headers["x-content-type-options"] == "nosniff"
 
 
+def test_homepage_head_probe_returns_success_without_body():
+    response = client.head("/")
+    assert response.status_code == 200
+    assert response.content == b""
+    assert response.headers["content-type"].startswith("text/html")
+
+
 def test_frontend_assets_and_mobile_menu_are_served():
     page = client.get("/")
     script = client.get("/app.js")

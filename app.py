@@ -18,7 +18,7 @@ from typing import Literal
 import litellm
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
@@ -219,6 +219,12 @@ def configured_providers():
 def normalized_model(config, model_name: str) -> str:
     prefix = config["prefix"] + "/"
     return model_name if model_name.startswith(prefix) else prefix + model_name
+
+
+@app.head("/")
+async def head_index():
+    # Render and uptime probes sometimes use HEAD; return the same success status as GET.
+    return Response(status_code=200, media_type="text/html")
 
 
 @app.get("/")
