@@ -52,6 +52,22 @@ def test_frontend_assets_and_mobile_menu_are_served():
     assert "@media(max-width:760px)" in styles.text
 
 
+def test_cors_preflight_allows_configured_frontend_origin():
+    origin = aarohi.allowed_origins[0]
+    response = client.options(
+        "/api/providers",
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "x-aarohi-access-code",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == origin
+    assert "x-aarohi-access-code" in response.headers["access-control-allow-headers"].lower()
+
+
 def test_provider_route_requires_access_code(monkeypatch):
     monkeypatch.setenv("AAROHI_ACCESS_CODE", "test-access-code")
     denied = client.get("/api/providers")
