@@ -983,8 +983,9 @@ def _explicit_search_intent(task: str) -> bool:
     if negative:
         return False
     return bool(re.search(
-        r"\b(web search|internet search|search the (web|internet)|browse (the )?(web|internet)|"
-        r"look\s*up|research|latest|today|current|recent|news|updates?|sources?|"
+        r"\b(web search|internet search|search( for| about| the (web|internet))?|browse (the )?(web|internet)|"
+        r"look\s*up|look for|find out|find (information|info|details|facts|sources?)|"
+        r"research|latest|today|current|recent|news|updates?|sources?|"
         r"abhi|aaj|taaza|khabar|khabrein|samachar|dhundo|khojo)\b",
         text, re.I
     ))
