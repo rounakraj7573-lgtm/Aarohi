@@ -321,6 +321,43 @@ def _validate_public_http_url(raw_url: str):
     return parsed
 
 
+_SEARCH_REDIRECT_HOSTS = {"news.google.com", "www.bing.com", "bing.com"}
+
+
+def _resolve_search_redirect_url(raw_url: str):
+    """Resolve public Google News/Bing article redirects to the publisher URL.
+
+    Search RSS feeds often wrap article links in provider URLs. Those wrappers
+    are intentionally rejected by _valid_search_item, so unwrap them safely
+    before validation. Validate every hop to preserve the SSRF protections used
+    by the live webpage reader.
+    """
+    current_url = str(raw_url or "").strip()
+    try:
+        initial = urlparse(current_url)
+        if (initial.hostname or "").lower() not in _SEARCH_REDIRECT_HOSTS:
+            return current_url
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; AarohiResearch/1.0)"}
+        with httpx.Client(timeout=httpx.Timeout(4.0), follow_redirects=False, headers=headers) as client:
+            for hop in range(5):
+                _validate_public_http_url(current_url)
+                with client.stream("GET", current_url) as response:
+                    if response.status_code in (301, 302, 303, 307, 308):
+                        location = response.headers.get("location")
+                        if not location or hop == 4:
+                            return None
+                        current_url = urljoin(current_url, location)
+                        continue
+                    final_url = str(response.url)
+                    final = _validate_public_http_url(final_url)
+                    if (final.hostname or "").lower() in _SEARCH_REDIRECT_HOSTS:
+                        return None
+                    return final_url
+    except Exception:
+        return None
+    return None
+
+
 def fetch_public_website(raw_url: str):
     current_url = raw_url if "://" in raw_url else "https://" + raw_url
     headers = {
@@ -617,18 +654,19 @@ def _run_web_search_single(query: str):
     collected = []
     provider_stats = defaultdict(lambda: {"received": 0, "accepted": 0, "rejected": 0, "undated": 0, "outside_window": 0})
 
+    redirect_budget = {"remaining": 8}
+
     def add_candidates(items, provider):
         stats = provider_stats[provider]
         for item in items:
             stats["received"] += 1
-            if not _valid_search_item(item, query):
+            candidate = dict(item)
+            title = str(candidate.get("title") or "").strip()
+            url = str(candidate.get("href") or candidate.get("url") or "").strip()
+            if not title or not url.startswith(("https://", "http://")):
                 stats["rejected"] += 1
                 continue
-            url = str(item.get("href") or item.get("url") or "").strip()
-            if not url:
-                stats["rejected"] += 1
-                continue
-            raw_date = item.get("published_at") or item.get("date")
+            raw_date = candidate.get("published_at") or candidate.get("date")
             published = _parse_search_date(raw_date)
             if is_latest and published is None:
                 stats["undated"] += 1
@@ -636,13 +674,30 @@ def _run_web_search_single(query: str):
             if is_latest and not _is_recent_article(published, days=news_window_days):
                 stats["outside_window"] += 1
                 continue
+
+            host = (urlparse(url).hostname or "").lower()
+            if host in _SEARCH_REDIRECT_HOSTS:
+                if redirect_budget["remaining"] <= 0:
+                    stats["rejected"] += 1
+                    continue
+                redirect_budget["remaining"] -= 1
+                resolved_url = _resolve_search_redirect_url(url)
+                if not resolved_url:
+                    stats["rejected"] += 1
+                    continue
+                candidate["href"] = resolved_url
+
+            if not _valid_search_item(candidate, query):
+                stats["rejected"] += 1
+                continue
+            candidate["href"] = str(candidate.get("href") or candidate.get("url") or "").strip()
             if published is not None:
-                item["published_at"] = published.isoformat()
-                item["_published_dt"] = published
-            item["source_provider"] = provider
-            item["_relevance"] = _search_match_score(item, query)
+                candidate["published_at"] = published.isoformat()
+                candidate["_published_dt"] = published
+            candidate["source_provider"] = provider
+            candidate["_relevance"] = _search_match_score(candidate, query)
             stats["accepted"] += 1
-            collected.append(item)
+            collected.append(candidate)
 
     # DDGS exposes a dedicated news endpoint with dates. Use its month filter
     # for current-news requests; use text search for evergreen research.
