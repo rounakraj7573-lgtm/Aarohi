@@ -1,8 +1,8 @@
 # Aarohi project status
 
-Last audited: 2026-11-25 (additional search audit)  
+Last audited: 2026-11-26  
 Repository: [rounakraj7573-lgtm/Aarohi](https://github.com/rounakraj7573-lgtm/Aarohi)  
-Verified application-code commit: `d028672f8760284c8d4f0a23c78582e202f2d35c`
+Current main revision: \`c1b3b24fc53e726bf18f511a9c9e7269695b67f2\`
 
 Status meanings:
 - **VERIFIED** — supported by a repeatable automated test or a current platform/runtime check.
@@ -11,49 +11,39 @@ Status meanings:
 
 | Area | Status | Evidence and remaining work |
 |---|---|---|
-| Backend deployment | VERIFIED | Render reports the backend deployment containing application commit `d028672` as live. Startup completed; Render's `HEAD /` and `GET /` probes returned HTTP 200 after the latest change. |
-| Frontend deployment | VERIFIED | Render reports the static frontend deployment containing application commit `d028672` as live. Build completed; a real Android/browser interaction session is still unavailable. |
-| Backend health and security headers | VERIFIED | `/api/health` and security-header behavior pass automated TestClient checks. Render logs recorded `GET /api/health` 200 on 2026-11-25 01:47 UTC; latest deployment logged `HEAD /` 200 and `GET /` 200 at 03:08 UTC. |
-| Frontend desktop/mobile behavior | PARTIAL | Responsive CSS, mobile menu, and asset serving are covered by source/endpoint tests; no real browser automation or Android interaction test yet. |
-| AI provider configuration | PARTIAL | Provider allowlist and configured-provider filtering are tested; a mocked Gemini chat request passes. Render logged `GET /api/providers` 200, but live model responses, per-provider connectivity, and free quotas are not verified. |
-| Chat behavior | PARTIAL | Chat route and Aarohi identity prompt pass a mocked Gemini test. A real model response and provider failure/retry behavior remain unverified. |
-| Web research and recent news | PARTIAL | Search/date parsing and article filtering have regression tests. Fixed a provenance bug: GDELT `seendate` is an index/observation timestamp, not the publisher's publication date; GDELT candidates are now explicitly undated for strict recent-news filtering rather than being presented with a false publication date. Broad-news topic queries now include an international qualifier and Google News edition coverage includes Australia and Singapore. Live cross-country relevance and original-link quality remain unverified. |
-| Website reader | PARTIAL | Direct HTML parsing and search-only fallback exist. Python Docs and WHO worked in user tests; Britannica returned 403 and fallback results were weak. The model must continue distinguishing fetched page text from search snippets. |
-| Cloud Python execution | NOT TESTED | Tensorlake integration exists and correctly reports an unconfigured sandbox in a test. No actual deployed safe sandbox execution or current free-quota confirmation has been completed. |
-| Workspace files and downloads | PARTIAL | Browser UI files use localStorage and persist only in that browser. Backend workspace endpoints are separate temporary in-memory storage and are not wired to the UI; neither provides durable cloud sync. Local browser download behavior still needs a real browser round-trip test. |
-| Chat history export/import | PARTIAL | Browser-side HTML/JSON backup code exists and is source-checked; complete export-then-import round-trip remains untested in a real browser. |
-| Access control, CORS, rate limits, SSRF safeguards | PARTIAL | Access-code enforcement, provider allowlist, rate limiting, filename/path validation, and public-IP URL checks have regression tests. A new CORS preflight test verifies the configured frontend origin and access-code header. This is not a security certification; DNS rebinding and broader abuse cases remain to assess. |
-| Performance and error handling | PARTIAL | Provider timeouts and errors have appeared in earlier logs; a recent filtered log query found no matching timeout/error entries, but latency, resource use, and mobile performance are not benchmarked. |
-| Continuous integration | VERIFIED | GitHub Actions [workflow #141](https://github.com/rounakraj7573-lgtm/Aarohi/actions/runs/45537786853) passed on application commit `d028672`: backend compilation, frontend JavaScript syntax check, and pytest all succeeded. The suite now contains 31 tests. |
+| Backend deployment | VERIFIED | Render reports the latest main revision \`c1b3b24\` live. Uvicorn startup completed; Render recorded \`HEAD /\` 200 and \`GET /\` 200 after the deployment. |
+| Frontend deployment | VERIFIED | Render reports the latest main revision \`c1b3b24\` live and the static-site build completed. Real browser and Android interaction testing is still outstanding. |
+| Backend health | VERIFIED | \`/api/health\` and root homepage are covered by passing TestClient tests. Render's deployment probes recorded root HEAD/GET 200. A separate public-browser HTTP probe was not available in this audit environment. |
+| Frontend/mobile UI | PARTIAL | Frontend JavaScript syntax check passes; responsive layout and mobile-menu source checks exist. No real Android/browser interaction session or accessibility audit yet. |
+| AI providers | PARTIAL | Provider allowlist/configuration checks and mocked provider chat tests pass. Live provider responses, current free quotas, and provider-specific failure/retry behavior are not verified. No paid calls were made. |
+| Chat | PARTIAL | Chat route and Aarohi identity behavior have mocked tests. A live model conversation has not been verified in this audit. |
+| Web research and recent news | PARTIAL | Multi-country wording now activates the broad-news route. A concrete bug was found: Google News/Bing RSS article links use provider redirect URLs that the search filter rejected as search-engine URLs. The backend now safely follows only those known provider redirects, validates every hop against the public-URL/SSRF guard, and retains the publisher article URL. Regression tests cover successful publisher resolution, unresolved provider wrappers, and private redirect rejection. Strict publication-date filtering remains; GDELT observation time is not treated as publication time. Still unverified: a live result set with 10 dated original articles from at least 8 countries across continents. |
+| Website reader | PARTIAL | Direct HTML extraction and a separate search-snippet fallback are implemented; fallback output explicitly says it is snippets, not fetched page content. Prior user tests showed mixed site accessibility. No new deployed live-page read was performed. |
+| Cloud Python sandbox | NOT TESTED | Tensorlake integration exists, but no actual safe deployed execution or verified free-quota condition has been established. Do not enable paid usage. |
+| Workspace files/downloads | PARTIAL | Browser files are localStorage-only; backend workspace files are temporary in-memory storage and are not durable cloud sync. Full save/read/list/delete/download round-trip remains unverified in a real browser. |
+| Chat export/import | PARTIAL | Browser-side JSON/HTML backup code exists; complete export-then-import round-trip has not been verified in a real browser. |
+| Access, CORS, rate limits, SSRF and security | PARTIAL | Access-code enforcement, CORS preflight, rate limits, filename validation, public-URL checks and redirect-hop validation have automated coverage. This is not a security certification; DNS rebinding and broader abuse cases still need review. |
+| Performance and error handling | PARTIAL | Timeouts, bounded concurrency, rate limits and error responses have source/tests. No load test, latency benchmark, or Android performance measurement yet. |
+| Continuous integration | VERIFIED | GitHub Actions [workflow #150](https://github.com/rounakraj7573-lgtm/Aarohi/actions/runs/45747672703) passed on \`c1b3b24\`: backend compile, frontend JavaScript syntax check, and pytest all succeeded. Test output: **38 passed in 3.28s**. |
 
-## Current verification (2026-11-25; follow-up search audit)\n\n- Follow-up code audit found that GDELT `seendate` had been passed into `published_at`. Corrected this provenance error: it is now retained as `indexed_at` and never satisfies the strict publication-date requirement.\n- Broad world-news searches now qualify topic queries as international and add Australia/Singapore English Google News editions alongside existing editions. This improves geographic coverage but does not prove balanced global results.\n- Two regression tests added for GDELT timestamp provenance. CI must pass before this change is considered validated.\n\n## Previous verification (2026-11-25)
+## Current audit evidence (2026-11-26)
 
-- GitHub Actions workflow #140 passed after adding the CORS preflight regression test.
-- GitHub Actions workflow #141: **success** on `d028672`; backend compile, `node --check static/app.js`, and `pytest -q` all passed.
-- The test suite contains **31 tests** (29 previously, plus CORS preflight and root HEAD probe regression tests).
-- Render backend and frontend deployments for application commit `d028672`: both **live**.
-- Render backend logs confirmed `HEAD /` returned HTTP 200 at 2026-11-25 03:08:39 UTC and `GET /` returned HTTP 200 at 03:08:44 UTC. Before the fix, Render's HEAD probe returned 405.
-- Render logs also recorded `GET /api/health` 200, `OPTIONS /api/providers` 200, and `GET /api/providers` 200 at 2026-11-25 01:47 UTC.
-- A direct external HTTP probe could not be completed from the audit runtime because its DNS resolution failed. Platform logs and automated tests are the available verification evidence; this limitation is not represented as a public-browser test.
-
-## Current evidenced fixes
-
-- Current-news filtering no longer rejects every short single-segment article slug; it rejects known generic category paths while allowing article slugs such as `/japan-news`.
-- Backend workspace writes enforce the 16 KB file limit in UTF-8 bytes, matching the documented/browser limit.
-- The UI label says **Cloud AI · local files**, and README explains that browser-local files are not cloud-synced and backend workspace storage is temporary and separate.
-- CORS preflight now has a regression test for the configured frontend origin and `X-Aarohi-Access-Code` header.
-- Render previously received `HEAD /` 405 during deploy checks. The backend now serves a bodyless HTTP 200 response for root HEAD requests; the latest Render deployment logs confirm 200.
+- Fixed broad-news intent detection so a request for “at least 8 different countries across different continents” is routed to global news search instead of being treated as a generic unsupported browsing request.
+- Fixed RSS redirect handling for Google News and Bing. The resolver follows at most five redirects, checks each hop with the existing public-URL validation, rejects unresolved search-engine wrappers, and accepts only the final publisher URL.
+- Added three resolver regression tests. GitHub Actions workflow #150 passed with 38 tests.
+- Render backend and frontend both report the latest main revision \`c1b3b24\` as **live**. Backend logs show startup complete, \`HEAD /\` 200, and \`GET /\` 200.
+- No secrets were read or changed, no new runtime dependency was added, and no paid plan/API/service was introduced.
 
 ## Zero-cost guardrails
 
-- No paid service, plan upgrade, billing change, secret change, or new runtime dependency was made in this audit.
-- A connected provider or sandbox is not assumed to be free. Keep only explicitly approved free-quota providers enabled and verify current quotas before use.
-- Cloud Python execution is not marked complete until an actual safe sandbox run succeeds and its cost/quota conditions are confirmed.
+- Keep total project cost at ₹0. Do not add paid hosting, databases, subscriptions, API calls, upgrades, or billing changes.
+- A provider key or sandbox integration is not proof of a free quota. Confirm cost/quota conditions before any live use.
+- Keep cloud Python execution marked NOT TESTED until a safe run succeeds under a verified zero-cost allowance.
 
-## Next verification priorities
+## Next priorities
 
-1. Verify one real chat response and one safe Python run only if the configured provider/sandbox can be used within the user's ₹0 limit; do not expose or change secrets.
-2. Improve search-source reliability and website-reader fallback relevance, and prevent the model from presenting search snippets as live webpage content.
-3. Run real browser/Android flows for mobile menu, chat history export/import, workspace save/read/list/delete/download, and reload persistence.
-4. Decide whether workspace files should remain explicitly browser-local or be moved to a durable cloud store; the current temporary in-memory API is not a persistence solution and no paid database may be introduced.
-5. Complete a consolidated end-to-end regression pass before calling Aarohi production-ready.
+1. Run a deployed multi-country news search and inspect the actual article count, publication dates, publisher names, original URLs, and country spread. Do not mark global news complete until the 8-country requirement is evidenced.
+2. Verify live chat/provider connectivity only where the user's existing configured free quota is known to be sufficient.
+3. Complete real browser/Android flows for chat, mobile layout, workspace files/downloads, and chat export/import.
+4. Decide whether workspace files should remain explicitly browser-local or be moved to a genuinely durable zero-cost store; the current in-memory API is temporary.
+5. Complete consolidated end-to-end testing before calling Aarohi production-ready.
