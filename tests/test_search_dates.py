@@ -152,3 +152,122 @@ def test_single_country_news_request_does_not_use_global_search_mode():
     from app import _is_broad_world_news_query
 
     assert not _is_broad_world_news_query("Japan latest news from the last 7 days")
+
+
+def test_resolve_search_redirect_returns_publisher_article_url(monkeypatch):
+    from urllib.parse import urlparse
+    from app import _resolve_search_redirect_url
+
+    start = "https://news.google.com/rss/articles/example"
+    publisher = "https://publisher.example/world/specific-story"
+
+    class FakeResponse:
+        def __init__(self, url, status_code, headers=None):
+            self.url = url
+            self.status_code = status_code
+            self.headers = headers or {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.calls = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def stream(self, method, url):
+            self.calls.append(url)
+            if url == start:
+                return FakeResponse(url, 302, {"location": publisher})
+            return FakeResponse(url, 200)
+
+    monkeypatch.setattr("app.httpx.Client", FakeClient)
+    monkeypatch.setattr("app._validate_public_http_url", lambda value: urlparse(value))
+
+    assert _resolve_search_redirect_url(start) == publisher
+
+
+def test_resolve_search_redirect_rejects_provider_wrapper_without_publisher(monkeypatch):
+    from urllib.parse import urlparse
+    from app import _resolve_search_redirect_url
+
+    class FakeResponse:
+        def __init__(self, url):
+            self.url = url
+            self.status_code = 200
+            self.headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def stream(self, method, url):
+            return FakeResponse(url)
+
+    monkeypatch.setattr("app.httpx.Client", FakeClient)
+    monkeypatch.setattr("app._validate_public_http_url", lambda value: urlparse(value))
+
+    assert _resolve_search_redirect_url("https://news.google.com/rss/articles/example") is None
+
+
+def test_resolve_search_redirect_rejects_private_redirect_target(monkeypatch):
+    from urllib.parse import urlparse
+    from app import _resolve_search_redirect_url
+
+    start = "https://www.bing.com/news/apiclick.aspx?id=example"
+
+    class FakeResponse:
+        def __init__(self, url, status_code, headers=None):
+            self.url = url
+            self.status_code = status_code
+            self.headers = headers or {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def stream(self, method, url):
+            return FakeResponse(url, 302, {"location": "http://127.0.0.1/private"})
+
+    def validate_public_url(value):
+        parsed = urlparse(value)
+        if parsed.hostname == "127.0.0.1":
+            raise ValueError("private host")
+        return parsed
+
+    monkeypatch.setattr("app.httpx.Client", FakeClient)
+    monkeypatch.setattr("app._validate_public_http_url", validate_public_url)
+
+    assert _resolve_search_redirect_url(start) is None
