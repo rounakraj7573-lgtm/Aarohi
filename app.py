@@ -975,16 +975,19 @@ def _explicit_search_intent(task: str) -> bool:
     text = str(task or "").strip()
     # Honor clear no-search instructions, including common Hinglish phrasing.
     negative = re.search(
-        r"\b(without|don['’]?t|do not|no need to|avoid|bina|mat|nahi|nahin)\b"
+        r"\b(without|don['’]?t|do not|no need to|not|avoid|bina|mat|nahi|nahin)\b"
         r".{0,70}\b(search|web|internet|browse|online)\b|"
-        r"\b(search|web|internet|browse)\b.{0,40}\b(mat|nahi|nahin|not)\b",
+        r"\bno\s+(?:need\s+to\s+)?(?:search|web|internet|browse|online)\b|"
+        r"\b(search|web|internet|browse)\b.{0,40}\b(not|unnecessary|unneeded|mat|nahi|nahin)\b",
         text, re.I
     )
     if negative:
         return False
     return bool(re.search(
-        r"\b(web search|internet search|search( for| about| the (web|internet))?|browse (the )?(web|internet)|"
-        r"look\s*up|look for|find out|find (information|info|details|facts|sources?)|"
+        r"\b(web search(?!\s+engine)|internet search(?!\s+engine)|"
+        r"search(?!\s+engine)\s+(?:for|about|the\s+(?:web|internet)|online|[A-Za-z0-9][A-Za-z0-9_-]*)|"
+        r"browse (the )?(web|internet)|look\s*up|look for|find out|"
+        r"find (information|info|details|facts|sources?)|"
         r"research|latest|today|current|recent|news|updates?|sources?|"
         r"abhi|aaj|taaza|khabar|khabrein|samachar|dhundo|khojo)\b",
         text, re.I
