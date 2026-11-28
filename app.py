@@ -643,7 +643,7 @@ def _gdelt_article_candidate(item):
     }
 
 
-def _run_web_search_single(query: str):
+def _run_web_search_single(query: str, rss_edition=None):
     # Search one topic/country at a time to avoid multi-country relevance dilution.
     # Use several public, no-key article sources and never fall back to generic portals.
     failures = []
@@ -720,55 +720,60 @@ def _run_web_search_single(query: str):
     except Exception as exc:
         failures.append("ddgs:" + type(exc).__name__)
 
-    # GDELT indexes international news articles. Restrict recent-news requests to a
-    # defined period instead of returning old background pages as current news.
-    try:
-        params = {
-            "query": cleaned_query,
-            "mode": "ArtList",
-            "format": "json",
-            "maxrecords": 30,
-            "sort": "HybridRel",
-        }
-        if is_latest:
-            params["timespan"] = "30d"
-        response = httpx.get(
-            "https://api.gdeltproject.org/api/v2/doc/doc",
-            params=params,
-            timeout=httpx.Timeout(4.0),
-            follow_redirects=True,
-            headers={"User-Agent": "AarohiResearch/1.0"},
-        )
-        response.raise_for_status()
-        items = []
-        for item in response.json().get("articles", [])[:30]:
-            items.append(_gdelt_article_candidate(item))
-        add_candidates(items, "gdelt")
-    except Exception as exc:
-        failures.append("gdelt:" + type(exc).__name__)
+    # GDELT's seen timestamp is not a publisher publication date. Recent-news
+    # candidates without a verified publication date are rejected, so skip this
+    # source for news requests instead of making an unusable network request.
+    if not is_latest:
+        try:
+            params = {
+                "query": cleaned_query,
+                "mode": "ArtList",
+                "format": "json",
+                "maxrecords": 30,
+                "sort": "HybridRel",
+            }
+            response = httpx.get(
+                "https://api.gdeltproject.org/api/v2/doc/doc",
+                params=params,
+                timeout=httpx.Timeout(4.0),
+                follow_redirects=True,
+                headers={"User-Agent": "AarohiResearch/1.0"},
+            )
+            response.raise_for_status()
+            items = []
+            for item in response.json().get("articles", [])[:30]:
+                items.append(_gdelt_article_candidate(item))
+            add_candidates(items, "gdelt")
+        except Exception as exc:
+            failures.append("gdelt:" + type(exc).__name__)
 
     # RSS article feeds are a no-key fallback with international coverage.
     # Let RSS providers return matching articles; the server-side publication-date\n    # filter below enforces the requested time window. Google News `when:30d`\n    # can suppress feed entries on some regional editions, so avoid that operator.\n    cleaned_query = cleaned_query
     # Global coverage: search results across multiple Google News editions.
     # These are parallel sources for the same query, not country/topic restrictions.
-    feeds = [
-        ("https://www.bing.com/search", {"format": "rss", "q": cleaned_query}),
-        ("https://news.google.com/rss/search", {
-            "q": cleaned_query, "hl": "en-US", "gl": "US", "ceid": "US:en"
-        }),
-        ("https://news.google.com/rss/search", {
-            "q": cleaned_query, "hl": "en-GB", "gl": "GB", "ceid": "GB:en"
-        }),
-        ("https://news.google.com/rss/search", {
-            "q": cleaned_query, "hl": "en-IN", "gl": "IN", "ceid": "IN:en"
-        }),
-        ("https://news.google.com/rss/search", {
-            "q": cleaned_query, "hl": "en-AU", "gl": "AU", "ceid": "AU:en"
-        }),
-        ("https://news.google.com/rss/search", {
-            "q": cleaned_query, "hl": "en-SG", "gl": "SG", "ceid": "SG:en"
-        }),
-    ]
+    # Keep ordinary search broad across editions. Worldwide-news queries supply
+    # one local edition per country to avoid redundant feed requests.
+    feeds = [("https://www.bing.com/search", {"format": "rss", "q": cleaned_query})]
+    if rss_edition:
+        feeds.append(("https://news.google.com/rss/search", {"q": cleaned_query, **rss_edition}))
+    else:
+        feeds.extend([
+            ("https://news.google.com/rss/search", {
+                "q": cleaned_query, "hl": "en-US", "gl": "US", "ceid": "US:en"
+            }),
+            ("https://news.google.com/rss/search", {
+                "q": cleaned_query, "hl": "en-GB", "gl": "GB", "ceid": "GB:en"
+            }),
+            ("https://news.google.com/rss/search", {
+                "q": cleaned_query, "hl": "en-IN", "gl": "IN", "ceid": "IN:en"
+            }),
+            ("https://news.google.com/rss/search", {
+                "q": cleaned_query, "hl": "en-AU", "gl": "AU", "ceid": "AU:en"
+            }),
+            ("https://news.google.com/rss/search", {
+                "q": cleaned_query, "hl": "en-SG", "gl": "SG", "ceid": "SG:en"
+            }),
+        ])
     if re.search(r"\bNASA\b|\bArtemis\b", query, re.I):
         feeds.insert(0, ("https://www.nasa.gov/tag/artemis/feed/", {}))
     for feed_url, params in feeds:
@@ -904,23 +909,44 @@ def _is_broad_world_news_query(query: str) -> bool:
     narrow = bool(re.search(r"\b(artemis|nasa|iphone|tesla|bitcoin|election campaign)\b", text))
     return broad and news_intent and not narrow
 
+_WORLD_NEWS_TARGETS = (
+    ("India", "Asia", {"hl": "en-IN", "gl": "IN", "ceid": "IN:en"}),
+    ("Germany", "Europe", {"hl": "de-DE", "gl": "DE", "ceid": "DE:de"}),
+    ("Nigeria", "Africa", {"hl": "en-NG", "gl": "NG", "ceid": "NG:en"}),
+    ("Brazil", "South America", {"hl": "pt-BR", "gl": "BR", "ceid": "BR:pt-BR"}),
+    ("Canada", "North America", {"hl": "en-CA", "gl": "CA", "ceid": "CA:en"}),
+    ("Australia", "Oceania", {"hl": "en-AU", "gl": "AU", "ceid": "AU:en"}),
+    ("Japan", "Asia", {"hl": "ja-JP", "gl": "JP", "ceid": "JP:ja"}),
+    ("United Kingdom", "Europe", {"hl": "en-GB", "gl": "GB", "ceid": "GB:en"}),
+    ("South Africa", "Africa", {"hl": "en-ZA", "gl": "ZA", "ceid": "ZA:en"}),
+    ("Mexico", "North America", {"hl": "es-419", "gl": "MX", "ceid": "MX:es-419"}),
+    ("Indonesia", "Asia", {"hl": "id-ID", "gl": "ID", "ceid": "ID:id"}),
+    ("France", "Europe", {"hl": "fr-FR", "gl": "FR", "ceid": "FR:fr"}),
+)
+
+
 def run_web_search(query: str):
     if _is_broad_world_news_query(query):
         days = _requested_news_window_days(query)
-        topics = ("politics", "economy", "science", "technology", "environment", "sports")
-        subqueries = ["international " + topic + " news last " + str(days) + " days" for topic in topics]
-        with ThreadPoolExecutor(max_workers=6) as pool:
-            groups = list(pool.map(_run_web_search_single, subqueries))
-        output, seen = [], set()
-        # Interleave topic results to preserve breadth; deduplicate URL.
-        for index in range(max((len(group) for group in groups), default=0)):
-            for group in groups:
-                if index < len(group):
-                    item = group[index]
-                    url = str(item.get("href") or item.get("url") or "")
-                    if url and url not in seen:
-                        seen.add(url)
-                        output.append(item)
+
+        def search_country(target):
+            country, _continent, edition = target
+            country_query = f"{country} latest news last {days} days"
+            return _run_web_search_single(country_query, rss_edition=edition)
+
+        # Query countries independently. One result per successful country
+        # prevents a large US/UK result group from hiding other regions.
+        with ThreadPoolExecutor(max_workers=len(_WORLD_NEWS_TARGETS)) as pool:
+            groups = list(pool.map(search_country, _WORLD_NEWS_TARGETS))
+        output = []
+        for (country, continent, _edition), group in zip(_WORLD_NEWS_TARGETS, groups):
+            if not group:
+                continue
+            item = dict(group[0])
+            item["country_query"] = country
+            item["continent_query"] = continent
+            output.append(item)
+        # Return fewer than ten rather than padding with duplicate-country news.
         return output[:10]
     queries = _split_country_queries(query)
     if len(queries) == 1:
@@ -959,7 +985,9 @@ async def research(payload: ResearchRequest, request: Request):
             if url.startswith(("https://", "http://")) and title:
                 cleaned.append({"title": title, "url": url, "snippet": snippet,
                                 "published_at": item.get("published_at"),
-                                "source_provider": item.get("source_provider")})
+                                "source_provider": item.get("source_provider"),
+                                "country_query": item.get("country_query"),
+                                "continent_query": item.get("continent_query")})
         return {"query": payload.query, "results": cleaned}
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Web search took too long. Try a shorter or more specific query.")
@@ -1115,7 +1143,9 @@ async def run_agent(payload: AgentRequest, request: Request):
             cleaned = [
                 {"title": str(x.get("title") or "")[:180], "url": str(x.get("href") or x.get("url") or ""),
                  "snippet": str(x.get("body") or "")[:500], "published_at": x.get("published_at"),
-                 "source_provider": x.get("source_provider")}
+                 "source_provider": x.get("source_provider"),
+                 "country_query": x.get("country_query"),
+                 "continent_query": x.get("continent_query")}
                 for x in found[:10] if str(x.get("href") or x.get("url") or "").startswith(("https://", "http://"))
             ]
             tool_results.append({"tool": "web_search", "results": cleaned} if cleaned else {"tool": "web_search", "error": "No useful search results were returned."})
@@ -1130,6 +1160,7 @@ async def run_agent(payload: AgentRequest, request: Request):
         "Never execute code, access accounts, send messages, purchase items, or change external systems. "
         "Current server date/time (UTC): " + datetime.now(timezone.utc).isoformat() + ". "
         "For latest-news requests, use only results whose published_at timestamp was verified by the server. "
+        "For broad world-news results, country_query and continent_query are search buckets, not proof of publisher origin or event location; describe only what the title and snippet support. Count distinct country_query values, and clearly state if fewer than eight countries were found. "
         "Never describe a past date as future; compare publication dates with the current server date. "
         "Be concise and answer in the user's language." + ("\n\nUser-approved saved memory (use only when relevant):\n" + payload.memory if payload.memory.strip() else "")
     )
